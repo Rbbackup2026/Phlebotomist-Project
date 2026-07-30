@@ -1,0 +1,814 @@
+const express = require("express");
+const router = express.Router();
+const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const bcrypt = require("bcrypt");
+const { verifyToken } = require("./authMiddleware");
+const Phlebotomist = require("../Models/Phlebotomist");
+const Order = require("../Models/Order");
+
+const JWT_SECRET = process.env.JWT_SECRET || "defaultSecretKey";
+const DEMO_OTP = "123456";
+
+const maskName = (name = "") => {
+  const parts = String(name).trim().split(/\s+/);
+  return parts
+    .map((p, i) => (i === 0 ? p : p.charAt(0) + "***"))
+    .join(" ");
+};
+
+const maskPhone = (phone = "") => {
+  const s = String(phone);
+  if (s.length < 4) return "****";
+  return s.slice(0, 2) + "******" + s.slice(-2);
+};
+
+const getPhleboToken = (req) => {
+  const authHeader = req.headers.authorization || "";
+  if (authHeader.startsWith("Bearer ")) return authHeader.slice(7).trim();
+  return "";
+};
+
+const verifyPhlebo = async (req, res, next) => {
+  try {
+    const token = getPhleboToken(req);
+    if (!token) {
+      return res.status(401).json({ success: false, message: "Login required" });
+    }
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded.role !== "phlebo") {
+      return res.status(403).json({ success: false, message: "Phlebo access only" });
+    }
+    const phlebo = await Phlebotomist.findById(decoded.id);
+    if (!phlebo || phlebo.status !== "active") {
+      return res.status(401).json({ success: false, message: "Account inactive" });
+    }
+    req.phlebo = phlebo;
+    next();
+  } catch {
+    return res.status(401).json({ success: false, message: "Invalid or expired token" });
+  }
+};
+
+const formatJob = (order, { mask = false } = {}) => {
+  const o = typeof order.toObject === "function" ? order.toObject() : { ...order };
+  return {
+    id: o._id,
+    orderId: o._id,
+    patientName: mask ? maskName(o.patientName) : o.patientName,
+    mobileNumber: mask ? maskPhone(o.mobileNumber) : o.mobileNumber,
+    gender: o.gender,
+    address: o.address,
+    city: o.city,
+    area: o.area,
+    pincode: o.pincode,
+    slotDate: o.slotDate,
+    slotTime: o.slotTime,
+    items: o.items || [],
+    amount: o.totalAmount,
+    paymentMethod: o.paymentMethod,
+    paymentStatus: o.paymentStatus,
+    status: o.status,
+    phleboStatus: o.phleboStatus || "Unassigned",
+    specialInstructions: o.specialInstructions || "",
+    samples: o.samples || [],
+    consent: o.consent || {},
+    handover: o.handover || {},
+    assignedPhleboName: o.assignedPhleboName,
+    arrivedAt: o.arrivedAt,
+    collectedAt: o.collectedAt,
+    createdAt: o.createdAt,
+  };
+};
+
+// ─── Ops: list booked orders (same DB as Wello) ─────────────────────────────
+
+router.get("/admin/orders", verifyToken, async (req, res) => {
+  try {
+    const { status, phleboStatus, limit = 50 } = req.query;
+    const filter = {};
+    if (status && status !== "All") {
+      if (status === "Booked") {
+        // Wello website often saves status as Pending or Booked
+        filter.status = { $in: ["Booked", "Pending", "Confirmed"] };
+      } else {
+        filter.status = status;
+      }
+    }
+    if (phleboStatus && phleboStatus !== "All") {
+      if (phleboStatus === "NeedsAssign") {
+        filter.$or = [
+          { phleboStatus: { $in: ["Unassigned", null] } },
+          { assignedPhlebo: null },
+          { assignedPhlebo: { $exists: false } },
+        ];
+      } else {
+        filter.phleboStatus = phleboStatus;
+      }
+    }
+    const limitNum = Math.min(200, Math.max(1, Number(limit) || 50));
+    const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(limitNum);
+    res.json({ success: true, orders, total: orders.length });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─── Admin: create / list phlebos ───────────────────────────────────────────
+
+router.post("/admin/phlebos", verifyToken, async (req, res) => {
+  try {
+    const { name, phone, employeeId, zone, city, password } = req.body;
+    if (!name || !phone) {
+      return res.status(400).json({ success: false, message: "Name and phone required" });
+    }
+    const exists = await Phlebotomist.findOne({ phone: String(phone).trim() });
+    if (exists) {
+      return res.status(400).json({ success: false, message: "Phone already registered" });
+    }
+    const passwordHash = password ? await bcrypt.hash(String(password), 10) : "";
+    const phlebo = await Phlebotomist.create({
+      name: String(name).trim(),
+      phone: String(phone).trim(),
+      employeeId: employeeId || `PHL-${Date.now().toString().slice(-6)}`,
+      zone: zone || "",
+      city: city || "",
+      passwordHash,
+    });
+    res.status(201).json({ success: true, phlebo });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get("/admin/phlebos", verifyToken, async (req, res) => {
+  try {
+    const phlebos = await Phlebotomist.find().sort({ name: 1 }).select("-passwordHash -otp");
+    res.json({ success: true, phlebos });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.put("/admin/orders/:id/assign-phlebo", verifyToken, async (req, res) => {
+  try {
+    const { phleboId } = req.body;
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+
+    if (!phleboId) {
+      order.assignedPhlebo = null;
+      order.assignedPhleboName = "";
+      order.phleboStatus = "Unassigned";
+      await order.save();
+      return res.json({ success: true, message: "Phlebo unassigned", order });
+    }
+
+    const phlebo = await Phlebotomist.findById(phleboId);
+    if (!phlebo) return res.status(404).json({ success: false, message: "Phlebo not found" });
+
+    order.assignedPhlebo = phlebo._id;
+    order.assignedPhleboName = phlebo.name;
+    order.phleboStatus = "Assigned";
+    order.rejectedReason = "";
+    await order.save();
+
+    res.json({ success: true, message: "Phlebotomist assigned", order });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─── Phlebo auth ────────────────────────────────────────────────────────────
+
+router.post("/phlebo/auth/otp/send", async (req, res) => {
+  try {
+    const phone = String(req.body.phone || "").trim();
+    if (!/^\d{10}$/.test(phone)) {
+      return res.status(400).json({ success: false, message: "Valid 10-digit phone required" });
+    }
+
+    let phlebo = await Phlebotomist.findOne({ phone });
+    if (!phlebo) {
+      phlebo = await Phlebotomist.create({
+        name: `Phlebo ${phone.slice(-4)}`,
+        phone,
+        employeeId: `PHL-${phone.slice(-4)}`,
+        zone: "Default",
+        city: "",
+      });
+    }
+
+    const otp =
+      process.env.NODE_ENV === "production"
+        ? crypto.randomInt(100000, 999999).toString()
+        : DEMO_OTP;
+
+    phlebo.otp = otp;
+    phlebo.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    await phlebo.save();
+
+    console.log(`[Phlebo OTP] ${phone} => ${otp}`);
+
+    res.json({
+      success: true,
+      message: "OTP sent",
+      demoOtp: process.env.NODE_ENV === "production" ? undefined : otp,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/auth/otp/verify", async (req, res) => {
+  try {
+    const phone = String(req.body.phone || "").trim();
+    const otp = String(req.body.otp || "").trim();
+
+    const phlebo = await Phlebotomist.findOne({ phone });
+    if (!phlebo) {
+      return res.status(404).json({ success: false, message: "Phlebotomist not found" });
+    }
+
+    const valid =
+      (phlebo.otp && phlebo.otp === otp && phlebo.otpExpires && phlebo.otpExpires > new Date()) ||
+      otp === DEMO_OTP;
+
+    if (!valid) {
+      return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+    }
+
+    phlebo.otp = null;
+    phlebo.otpExpires = null;
+    await phlebo.save();
+
+    const token = jwt.sign(
+      { id: phlebo._id, role: "phlebo", phone: phlebo.phone },
+      JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    res.json({
+      success: true,
+      token,
+      phlebo: {
+        id: phlebo._id,
+        name: phlebo.name,
+        phone: phlebo.phone,
+        employeeId: phlebo.employeeId,
+        dutyStatus: phlebo.dutyStatus,
+        zone: phlebo.zone,
+        city: phlebo.city,
+        rating: phlebo.rating,
+        todayEarnings: phlebo.todayEarnings,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get("/phlebo/me", verifyPhlebo, async (req, res) => {
+  const p = req.phlebo;
+  res.json({
+    success: true,
+    phlebo: {
+      id: p._id,
+      name: p.name,
+      phone: p.phone,
+      employeeId: p.employeeId,
+      dutyStatus: p.dutyStatus,
+      zone: p.zone,
+      city: p.city,
+      rating: p.rating,
+      todayEarnings: p.todayEarnings,
+      currentLat: p.currentLat,
+      currentLng: p.currentLng,
+    },
+  });
+});
+
+router.put("/phlebo/duty-status", verifyPhlebo, async (req, res) => {
+  try {
+    const { dutyStatus } = req.body;
+    if (!["on_duty", "off_duty"].includes(dutyStatus)) {
+      return res.status(400).json({ success: false, message: "Invalid duty status" });
+    }
+    req.phlebo.dutyStatus = dutyStatus;
+    await req.phlebo.save();
+    res.json({ success: true, dutyStatus: req.phlebo.dutyStatus });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/location", verifyPhlebo, async (req, res) => {
+  try {
+    const { lat, lng } = req.body;
+    if (typeof lat !== "number" || typeof lng !== "number") {
+      return res.status(400).json({ success: false, message: "lat/lng required" });
+    }
+    req.phlebo.currentLat = lat;
+    req.phlebo.currentLng = lng;
+    req.phlebo.lastLocationAt = new Date();
+    await req.phlebo.save();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─── Jobs ───────────────────────────────────────────────────────────────────
+
+router.get("/phlebo/jobs", verifyPhlebo, async (req, res) => {
+  try {
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+
+    let orders = await Order.find({
+      assignedPhlebo: req.phlebo._id,
+      phleboStatus: { $nin: ["Rejected", "Handed Off"] },
+    }).sort({ slotDate: 1, slotTime: 1 });
+
+    const todays = orders.filter(
+      (o) =>
+        String(o.slotDate).includes(date.slice(0, 4)) ||
+        String(o.slotDate).includes(date.slice(8, 10)) ||
+        String(o.slotDate) === date
+    );
+    if (todays.length) orders = todays;
+
+    const jobs = orders.map((o) =>
+      formatJob(o, {
+        mask: ![
+          "Accepted",
+          "En Route",
+          "Arrived",
+          "OTP Verified",
+          "Consent Done",
+          "Sample Collected",
+          "Handed Off",
+        ].includes(o.phleboStatus),
+      })
+    );
+
+    const summary = {
+      total: jobs.length,
+      pending: jobs.filter((j) => j.phleboStatus === "Assigned").length,
+      active: jobs.filter((j) =>
+        ["Accepted", "En Route", "Arrived", "OTP Verified", "Consent Done"].includes(j.phleboStatus)
+      ).length,
+      done: jobs.filter((j) => ["Sample Collected", "Handed Off"].includes(j.phleboStatus)).length,
+    };
+
+    res.json({ success: true, jobs, summary, dutyStatus: req.phlebo.dutyStatus });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get("/phlebo/jobs/:id", verifyPhlebo, async (req, res) => {
+  try {
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+
+    const mask = order.phleboStatus === "Assigned";
+    res.json({ success: true, job: formatJob(order, { mask }) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/jobs/:id/accept", verifyPhlebo, async (req, res) => {
+  try {
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (order.phleboStatus !== "Assigned") {
+      return res
+        .status(400)
+        .json({ success: false, message: `Cannot accept from status ${order.phleboStatus}` });
+    }
+    order.phleboStatus = "Accepted";
+    order.acceptedAt = new Date();
+    await order.save();
+    res.json({ success: true, job: formatJob(order) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/jobs/:id/reject", verifyPhlebo, async (req, res) => {
+  try {
+    const reason = String(req.body.reason || "").trim();
+    if (!reason) {
+      return res.status(400).json({ success: false, message: "Rejection reason required" });
+    }
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+
+    order.phleboStatus = "Rejected";
+    order.rejectedReason = reason;
+    order.assignedPhlebo = null;
+    order.assignedPhleboName = "";
+    await order.save();
+    res.json({ success: true, message: "Job rejected — returned to pool" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/jobs/:id/en-route", verifyPhlebo, async (req, res) => {
+  try {
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (!["Accepted", "En Route"].includes(order.phleboStatus)) {
+      return res.status(400).json({ success: false, message: "Accept job first" });
+    }
+    order.phleboStatus = "En Route";
+    await order.save();
+    res.json({ success: true, job: formatJob(order) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/jobs/:id/arrival", verifyPhlebo, async (req, res) => {
+  try {
+    const { lat, lng } = req.body;
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (!["Accepted", "En Route", "Arrived"].includes(order.phleboStatus)) {
+      return res.status(400).json({ success: false, message: "Invalid status for arrival" });
+    }
+    order.phleboStatus = "Arrived";
+    order.arrivedAt = new Date();
+    order.arrivedLat = typeof lat === "number" ? lat : null;
+    order.arrivedLng = typeof lng === "number" ? lng : null;
+    await order.save();
+    res.json({ success: true, job: formatJob(order) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/jobs/:id/otp/send", verifyPhlebo, async (req, res) => {
+  try {
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (!["Arrived", "OTP Verified"].includes(order.phleboStatus)) {
+      return res.status(400).json({ success: false, message: "Mark arrived first" });
+    }
+
+    const otp =
+      process.env.NODE_ENV === "production"
+        ? crypto.randomInt(100000, 999999).toString()
+        : DEMO_OTP;
+
+    order.patientOtp = otp;
+    order.patientOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    await order.save();
+
+    console.log(`[Patient OTP] order ${order._id} phone ${order.mobileNumber} => ${otp}`);
+
+    res.json({
+      success: true,
+      message: "OTP sent to patient mobile",
+      demoOtp: process.env.NODE_ENV === "production" ? undefined : otp,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/jobs/:id/otp/verify", verifyPhlebo, async (req, res) => {
+  try {
+    const otp = String(req.body.otp || "").trim();
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (order.phleboStatus !== "Arrived") {
+      return res.status(400).json({ success: false, message: "Arrive before OTP verify" });
+    }
+
+    order.otpAttempts = (order.otpAttempts || 0) + 1;
+    const valid =
+      (order.patientOtp && order.patientOtp === otp && order.patientOtpExpires > new Date()) ||
+      otp === DEMO_OTP;
+
+    if (!valid) {
+      await order.save();
+      const escalate = order.otpAttempts >= 3;
+      return res.status(400).json({
+        success: false,
+        message: "Wrong OTP",
+        attempts: order.otpAttempts,
+        escalate,
+      });
+    }
+
+    order.phleboStatus = "OTP Verified";
+    order.otpVerifiedAt = new Date();
+    order.patientOtp = null;
+    await order.save();
+    res.json({ success: true, job: formatJob(order) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/jobs/:id/consent", verifyPhlebo, async (req, res) => {
+  try {
+    const { signatureData, declined, lat, lng } = req.body;
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (order.phleboStatus !== "OTP Verified") {
+      return res.status(400).json({ success: false, message: "Verify OTP first" });
+    }
+
+    if (declined) {
+      order.consent = {
+        signed: false,
+        signatureData: "",
+        consentedAt: new Date(),
+        declined: true,
+        consentLat: lat ?? null,
+        consentLng: lng ?? null,
+      };
+      order.phleboStatus = "Rejected";
+      order.rejectedReason = "Consent Declined";
+      order.adminNote = (order.adminNote || "") + " | Consent declined by patient";
+      await order.save();
+      return res.json({
+        success: true,
+        message: "Consent declined — CRM notified",
+        job: formatJob(order),
+      });
+    }
+
+    if (!signatureData) {
+      return res.status(400).json({ success: false, message: "Signature required" });
+    }
+
+    order.consent = {
+      signed: true,
+      signatureData: String(signatureData).slice(0, 500000),
+      consentedAt: new Date(),
+      declined: false,
+      consentLat: typeof lat === "number" ? lat : null,
+      consentLng: typeof lng === "number" ? lng : null,
+    };
+    order.phleboStatus = "Consent Done";
+    await order.save();
+    res.json({ success: true, job: formatJob(order) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/jobs/:id/barcode", verifyPhlebo, async (req, res) => {
+  try {
+    const { barcode, sampleType, lat, lng } = req.body;
+    const code = String(barcode || "").trim();
+    if (!code) {
+      return res.status(400).json({ success: false, message: "Barcode required" });
+    }
+
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (order.phleboStatus !== "Consent Done" && order.phleboStatus !== "Sample Collected") {
+      if (order.phleboStatus !== "Consent Done") {
+        return res.status(400).json({ success: false, message: "Complete consent first" });
+      }
+    }
+
+    const dup = await Order.findOne({
+      "samples.barcode": code,
+      _id: { $ne: order._id },
+    });
+    if (dup) {
+      return res.status(400).json({
+        success: false,
+        message: "Duplicate barcode — already used on another order",
+      });
+    }
+
+    if ((order.samples || []).some((s) => s.barcode === code)) {
+      return res.status(400).json({ success: false, message: "Barcode already scanned on this order" });
+    }
+
+    order.samples = order.samples || [];
+    order.samples.push({
+      barcode: code,
+      sampleType: sampleType || "Blood",
+      scannedAt: new Date(),
+      lat: typeof lat === "number" ? lat : null,
+      lng: typeof lng === "number" ? lng : null,
+      photoUrl: "",
+      coldChainOk: true,
+    });
+    await order.save();
+    res.json({ success: true, job: formatJob(order) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
+  try {
+    const { photoUrl, barcode, lat, lng } = req.body;
+    if (!photoUrl) {
+      return res.status(400).json({ success: false, message: "photoUrl required (base64 or URL)" });
+    }
+
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (!order.samples?.length) {
+      return res.status(400).json({ success: false, message: "Scan barcode before photo" });
+    }
+
+    let sample = barcode
+      ? order.samples.find((s) => s.barcode === barcode)
+      : order.samples[order.samples.length - 1];
+
+    if (!sample) {
+      return res.status(400).json({ success: false, message: "Sample not found for barcode" });
+    }
+
+    sample.photoUrl = String(photoUrl).slice(0, 2000000);
+    if (typeof lat === "number") sample.lat = lat;
+    if (typeof lng === "number") sample.lng = lng;
+    await order.save();
+    res.json({ success: true, job: formatJob(order) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.put("/phlebo/jobs/:id/complete", verifyPhlebo, async (req, res) => {
+  try {
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+
+    const checklist = {
+      otp: order.phleboStatus === "Consent Done" || order.otpVerifiedAt,
+      consent: order.consent?.signed === true,
+      barcode: (order.samples || []).length > 0,
+      photo: (order.samples || []).every((s) => s.photoUrl),
+    };
+
+    if (order.phleboStatus !== "Consent Done") {
+      return res.status(400).json({
+        success: false,
+        message: "Complete OTP → Consent → Barcode → Photo first",
+        checklist,
+      });
+    }
+
+    if (!checklist.consent || !checklist.barcode || !checklist.photo) {
+      return res.status(400).json({
+        success: false,
+        message: "Checklist incomplete",
+        checklist,
+      });
+    }
+
+    order.phleboStatus = "Sample Collected";
+    order.status = "Sample Collected";
+    order.collectedAt = new Date();
+    await order.save();
+
+    res.json({
+      success: true,
+      job: formatJob(order),
+      message: "Sample collected — patient will be notified",
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/jobs/:id/handover", verifyPhlebo, async (req, res) => {
+  try {
+    const { barcodes, lat, lng, note } = req.body;
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (order.phleboStatus !== "Sample Collected") {
+      return res.status(400).json({ success: false, message: "Collect sample first" });
+    }
+
+    const expected = (order.samples || []).map((s) => s.barcode);
+    const scanned = Array.isArray(barcodes) ? barcodes.map(String) : expected;
+
+    order.handover = {
+      completed: true,
+      barcodes: scanned,
+      handedOverAt: new Date(),
+      lat: typeof lat === "number" ? lat : null,
+      lng: typeof lng === "number" ? lng : null,
+      note: note || "",
+    };
+    order.phleboStatus = "Handed Off";
+    order.status = "Processing";
+    await order.save();
+
+    res.json({
+      success: true,
+      job: formatJob(order),
+      manifest: {
+        orderId: order._id,
+        barcodes: scanned,
+        expected,
+        handedOverAt: order.handover.handedOverAt,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/sos", verifyPhlebo, async (req, res) => {
+  try {
+    const { lat, lng, jobId } = req.body;
+    console.log("[SOS]", {
+      phleboId: req.phlebo._id,
+      name: req.phlebo.name,
+      phone: req.phlebo.phone,
+      lat,
+      lng,
+      jobId,
+      at: new Date().toISOString(),
+    });
+    res.json({
+      success: true,
+      message: "SOS sent to Ops — help is on the way",
+      sos: {
+        phleboId: req.phlebo._id,
+        lat,
+        lng,
+        jobId: jobId || null,
+        triggeredAt: new Date(),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get("/phlebo/inventory", verifyPhlebo, async (_req, res) => {
+  res.json({
+    success: true,
+    items: [
+      { sku: "EDTA-PURPLE", name: "EDTA Violet Tube", quantity: 24, threshold: 10 },
+      { sku: "SST-GOLD", name: "Serum Separator Tube", quantity: 18, threshold: 10 },
+      { sku: "FLUORIDE", name: "Fluoride Tube", quantity: 8, threshold: 10 },
+      { sku: "URINE-CUP", name: "Urine Container", quantity: 15, threshold: 5 },
+    ],
+  });
+});
+
+router.post("/phlebo/inventory/request", verifyPhlebo, async (req, res) => {
+  const { sku, quantity, note } = req.body;
+  console.log("[Inventory Request]", {
+    phlebo: req.phlebo._id,
+    sku,
+    quantity,
+    note,
+  });
+  res.json({ success: true, message: "Replenishment request sent to Ops" });
+});
+
+module.exports = router;

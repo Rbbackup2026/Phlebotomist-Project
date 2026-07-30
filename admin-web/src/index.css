@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply font-sans text-slate-800 antialiased;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl shadow-card border border-slate-100;
+  }
+  /* Raised "3D" card — light background, layered shadow, subtle lift on hover.
+     Used for the Superadmin console so it feels distinct but still light/airy. */
+  .card-3d {
+    @apply bg-white rounded-2xl border border-violet-100 transition-all duration-150;
+    box-shadow: 0 1px 2px rgba(109, 40, 217, 0.06), 0 8px 24px -8px rgba(109, 40, 217, 0.18);
+  }
+  .card-3d:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 4px rgba(109, 40, 217, 0.08), 0 16px 32px -12px rgba(109, 40, 217, 0.24);
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-brand-500 text-white hover:bg-brand-600;
+  }
+  .btn-secondary {
+    @apply btn bg-slate-100 text-slate-700 hover:bg-slate-200;
+  }
+  .btn-danger {
+    @apply btn bg-rose-50 text-rose-600 hover:bg-rose-100;
+  }
+  .input {
+    @apply w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100;
+  }
+  .label {
+    @apply block text-xs font-medium text-slate-500 mb-1;
+  }
+}
