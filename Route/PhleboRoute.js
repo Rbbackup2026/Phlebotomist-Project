@@ -193,6 +193,7 @@ const formatJob = (order, { mask = false } = {}) => {
     status: o.status,
     phleboStatus: o.phleboStatus || "Unassigned",
     specialInstructions: o.specialInstructions || "",
+    trfBarcode: o.trfBarcode || "",
     samples: (o.samples || []).map((s) => {
       const photoUrls = absoluteMediaUrls(
         coalescePhotoUrls(s.photoUrl, s.photoUrls)
@@ -2220,6 +2221,38 @@ router.post("/phlebo/jobs/:id/consent", verifyPhlebo, async (req, res) => {
   }
 });
 
+router.post("/phlebo/jobs/:id/trf", verifyPhlebo, async (req, res) => {
+  try {
+    const code = String(req.body.barcode || req.body.trfBarcode || "").trim();
+    if (!code) {
+      return res.status(400).json({ success: false, message: "TRF barcode required" });
+    }
+
+    const order = await Job.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (order.phleboStatus !== "Consent Done" && order.phleboStatus !== "Sample Collected") {
+      return res.status(400).json({ success: false, message: "Complete consent first" });
+    }
+
+    // Tubes already scanned → TRF change mat karo (mismatch risk)
+    if (order.trfBarcode && (order.samples || []).length > 0 && order.trfBarcode !== code) {
+      return res.status(400).json({
+        success: false,
+        message: "TRF already set — tubes scanned hain, TRF change nahi ho sakta",
+      });
+    }
+
+    order.trfBarcode = code;
+    await order.save();
+    res.json({ success: true, message: "TRF barcode saved", job: formatJob(order) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.post("/phlebo/jobs/:id/barcode", verifyPhlebo, async (req, res) => {
   try {
     const { barcode, sampleType, lat, lng } = req.body;
@@ -2239,6 +2272,24 @@ router.post("/phlebo/jobs/:id/barcode", verifyPhlebo, async (req, res) => {
       }
     }
 
+    const trf = String(order.trfBarcode || "").trim();
+    if (!trf) {
+      return res.status(400).json({
+        success: false,
+        message: "Pehle TRF barcode scan karo",
+      });
+    }
+
+    // Tube must contain TRF core (e.g. TRF 20273206 → E20273206 / S20273206 / F20273206P)
+    const tubeU = code.toUpperCase();
+    const trfU = trf.toUpperCase();
+    if (!tubeU.includes(trfU)) {
+      return res.status(400).json({
+        success: false,
+        message: `Tube barcode TRF se match nahi karta (TRF: ${trf})`,
+      });
+    }
+
     const dup = await Job.findOne({
       "samples.barcode": code,
       _id: { $ne: order._id },
@@ -2254,10 +2305,20 @@ router.post("/phlebo/jobs/:id/barcode", verifyPhlebo, async (req, res) => {
       return res.status(400).json({ success: false, message: "Barcode already scanned on this order" });
     }
 
+    // Prefix se sample type hint (S/E/U/F…)
+    let inferred = sampleType || "Blood";
+    if (!sampleType) {
+      const prefix = tubeU.replace(trfU, "").replace(/[^A-Z]/g, "").charAt(0);
+      if (prefix === "U") inferred = "Urine";
+      else if (prefix === "E") inferred = "EDTA";
+      else if (prefix === "S") inferred = "Serum";
+      else if (prefix === "F") inferred = "Fluoride";
+    }
+
     order.samples = order.samples || [];
     order.samples.push({
       barcode: code,
-      sampleType: sampleType || "Blood",
+      sampleType: inferred,
       scannedAt: new Date(),
       lat: typeof lat === "number" ? lat : null,
       lng: typeof lng === "number" ? lng : null,
@@ -2413,6 +2474,7 @@ router.put("/phlebo/jobs/:id/complete", verifyPhlebo, async (req, res) => {
     const checklist = {
       otp: order.phleboStatus === "Consent Done" || order.otpVerifiedAt,
       consent: order.consent?.signed === true,
+      trf: !!String(order.trfBarcode || "").trim(),
       barcode: (order.samples || []).length > 0,
       photo: (order.samples || []).every(
         (s) => coalescePhotoUrls(s.photoUrl, s.photoUrls).length > 0
@@ -2422,15 +2484,15 @@ router.put("/phlebo/jobs/:id/complete", verifyPhlebo, async (req, res) => {
     if (order.phleboStatus !== "Consent Done") {
       return res.status(400).json({
         success: false,
-        message: "Complete OTP → Consent → Barcode → Photo first",
+        message: "Complete OTP → Consent → TRF → Barcode → Photo first",
         checklist,
       });
     }
 
-    if (!checklist.consent || !checklist.barcode || !checklist.photo) {
+    if (!checklist.consent || !checklist.trf || !checklist.barcode || !checklist.photo) {
       return res.status(400).json({
         success: false,
-        message: "Checklist incomplete",
+        message: "Checklist incomplete — TRF + har tube pe photo zaroori",
         checklist,
       });
     }

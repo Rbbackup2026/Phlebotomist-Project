@@ -138,6 +138,8 @@ const jobSchema = new mongoose.Schema(
       consentLng: { type: Number, default: null },
       declined: { type: Boolean, default: false },
     },
+    /** TRF (Test Requisition Form) barcode — pehle scan hota hai; tube barcodes isi se match hone chahiye */
+    trfBarcode: { type: String, default: "", trim: true, index: true },
     samples: [
       {
         barcode: { type: String, trim: true },
