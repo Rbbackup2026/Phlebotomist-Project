@@ -1,0 +1,36 @@
+name: Deploy Phlebotomist Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.2
+
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.PORT }}
+
+          script: |
+            cd /var/www/Phlebotomist-Project
+
+            echo "Pulling latest code..."
+            git fetch origin
+            git reset --hard origin/main
+
+            echo "Installing dependencies..."
+            npm install
+
+            echo "Restarting PM2..."
+            pm2 restart phlebo-backend
+
+            echo "Saving PM2..."
+            pm2 save
