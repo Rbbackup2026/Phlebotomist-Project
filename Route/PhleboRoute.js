@@ -2277,6 +2277,43 @@ router.post("/phlebo/jobs/:id/trf", verifyPhlebo, async (req, res) => {
   }
 });
 
+/** Clear TRF so phlebo can rescan. Also clears TRF photos, tubes, and collection photos. */
+router.delete("/phlebo/jobs/:id/trf", verifyPhlebo, async (req, res) => {
+  try {
+    const order = await Job.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+
+    if (order.phleboStatus !== "Consent Done") {
+      return res.status(400).json({
+        success: false,
+        message: "TRF can only be removed before sample is marked collected",
+      });
+    }
+
+    order.trfBarcode = "";
+    order.trfPhotoUrl = "";
+    order.trfPhotoUrls = [];
+    order.samples = [];
+    order.collectionPhotoUrl = "";
+    order.collectionPhotoUrls = [];
+    order.markModified("samples");
+    order.markModified("trfPhotoUrls");
+    order.markModified("collectionPhotoUrls");
+    await order.save();
+
+    res.json({
+      success: true,
+      message: "TRF removed — scan again",
+      job: formatJob(order),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.post("/phlebo/jobs/:id/barcode", verifyPhlebo, async (req, res) => {
   try {
     const { barcode, sampleType, lat, lng } = req.body;
