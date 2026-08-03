@@ -18,11 +18,16 @@ const { sendPushToPhlebo } = require("../services/push");
 const { computeIncentive } = require("../services/incentive");
 const Attendance = require("../Models/Attendance");
 const PhleboLeave = require("../Models/PhleboLeave");
-const { saveDataUrlImage, absoluteMediaUrl } = require("../services/media");
+const {
+  saveDataUrlImage,
+  absoluteMediaUrl,
+  absoluteMediaUrls,
+  coalescePhotoUrls,
+} = require("../services/media");
 
 const JWT_SECRET = process.env.JWT_SECRET || "defaultSecretKey";
 const DEMO_OTP = "123456";
-const ADD_TEST_STATUSES = ["Arrived", "OTP Verified", "Consent Done"];
+const ADD_TEST_STATUSES = ["Arrived", "OTP Verified", "Consent Done", "Sample Collected"];
 // Geofence audit radius for arrival (soft flag only — never blocks arrival, geocoding
 // can legitimately be off by this much for apartment complexes/wrong pins).
 const GEOFENCE_RADIUS_M = 300;
@@ -188,16 +193,27 @@ const formatJob = (order, { mask = false } = {}) => {
     status: o.status,
     phleboStatus: o.phleboStatus || "Unassigned",
     specialInstructions: o.specialInstructions || "",
-    samples: (o.samples || []).map((s) => ({
-      ...s,
-      photoUrl: absoluteMediaUrl(s.photoUrl || ""),
-    })),
+    samples: (o.samples || []).map((s) => {
+      const photoUrls = absoluteMediaUrls(
+        coalescePhotoUrls(s.photoUrl, s.photoUrls)
+      );
+      return {
+        ...s,
+        photoUrl: photoUrls[0] || "",
+        photoUrls,
+        hasPhoto: photoUrls.length > 0,
+      };
+    }),
     consent: o.consent || {},
     handover: (() => {
       const h = o.handover || {};
+      const bagPhotoUrls = absoluteMediaUrls(
+        coalescePhotoUrls(h.bagPhotoUrl, h.bagPhotoUrls)
+      );
       return {
         ...h,
-        bagPhotoUrl: absoluteMediaUrl(h.bagPhotoUrl || ""),
+        bagPhotoUrl: bagPhotoUrls[0] || "",
+        bagPhotoUrls,
       };
     })(),
     assignedPhleboName: o.assignedPhleboName,
@@ -1779,6 +1795,62 @@ router.post("/phlebo/jobs/:id/tests", verifyPhlebo, async (req, res) => {
   }
 });
 
+/** Phlebo-added extra test hatao (original booking items lock rehte hain).
+ *  POST body preferred (mobile/proxies pe DELETE kabhi miss ho jata hai). */
+async function removePhleboAddedTest(req, res) {
+  try {
+    const order = await Job.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+
+    if (!ADD_TEST_STATUSES.includes(order.phleboStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Tests sirf visit ke dauran remove ho sakte hain (Arrived → Consent Done)",
+      });
+    }
+
+    const productId = String(
+      req.body?.productId || req.params.productId || ""
+    ).trim();
+    if (!productId) {
+      return res.status(400).json({ success: false, message: "productId required" });
+    }
+
+    const idx = (order.items || []).findIndex(
+      (i) => String(i.productId) === productId && i.addedByPhlebo
+    );
+    if (idx < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Sirf visit pe add kiye tests remove ho sakte hain",
+      });
+    }
+
+    const removed = order.items[idx];
+    order.items.splice(idx, 1);
+    order.markModified("items");
+    recalcJobTotals(order);
+
+    const note = `Test removed by phlebo: ${removed.name || productId}`;
+    order.adminNote = order.adminNote ? `${order.adminNote} | ${note}` : note;
+
+    await saveAndNotify(order);
+    res.json({
+      success: true,
+      message: `${removed.name || "Test"} remove ho gaya`,
+      job: formatJob(order),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+router.post("/phlebo/jobs/:id/tests/remove", verifyPhlebo, removePhleboAddedTest);
+router.delete("/phlebo/jobs/:id/tests/:productId", verifyPhlebo, removePhleboAddedTest);
+
 /**
  * Phlebo is already at a patient's address and another person at the same
  * location wants a test. Creates a new Job pre-assigned to the same phlebo,
@@ -2190,6 +2262,7 @@ router.post("/phlebo/jobs/:id/barcode", verifyPhlebo, async (req, res) => {
       lat: typeof lat === "number" ? lat : null,
       lng: typeof lng === "number" ? lng : null,
       photoUrl: "",
+      photoUrls: [],
       hasPhoto: false,
       photoTakenAt: null,
       coldChainOk: true,
@@ -2204,9 +2277,18 @@ router.post("/phlebo/jobs/:id/barcode", verifyPhlebo, async (req, res) => {
 
 router.post("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
   try {
-    const { photoUrl, barcode, sampleId, lat, lng } = req.body;
-    if (!photoUrl) {
-      return res.status(400).json({ success: false, message: "photoUrl required (base64 or URL)" });
+    const { photoUrl, photoUrls, barcode, sampleId, lat, lng, replace } = req.body;
+    const inputs = [];
+    if (Array.isArray(photoUrls)) {
+      for (const u of photoUrls) if (u) inputs.push(u);
+    } else if (photoUrl) {
+      inputs.push(photoUrl);
+    }
+    if (!inputs.length) {
+      return res.status(400).json({
+        success: false,
+        message: "photoUrl or photoUrls required (base64 or URL)",
+      });
     }
 
     const order = await Job.findOne({
@@ -2233,17 +2315,65 @@ router.post("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
       return res.status(400).json({ success: false, message: "Sample not found for barcode" });
     }
 
-    const savedPath = saveDataUrlImage(photoUrl, "samples");
-    if (!savedPath) {
+    const savedPaths = inputs
+      .map((u) => saveDataUrlImage(u, "samples"))
+      .filter(Boolean);
+    if (!savedPaths.length) {
       return res.status(400).json({ success: false, message: "Invalid photo data" });
     }
 
-    sample.photoUrl = savedPath;
-    sample.hasPhoto = true;
+    const existing = coalescePhotoUrls(sample.photoUrl, sample.photoUrls);
+    sample.photoUrls = replace === true ? savedPaths : [...existing, ...savedPaths];
+    sample.photoUrl = sample.photoUrls[0] || "";
+    sample.hasPhoto = sample.photoUrls.length > 0;
     sample.photoTakenAt = new Date();
     if (typeof lat === "number") sample.lat = lat;
     if (typeof lng === "number") sample.lng = lng;
     // Nested array mutation — mongoose ko explicitly batana zaroori hai
+    order.markModified("samples");
+    await order.save();
+    res.json({ success: true, job: formatJob(order) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/** Delete one sample photo by index, or all photos if index omitted. */
+router.delete("/phlebo/jobs/:id/samples/:sampleId/photo", verifyPhlebo, async (req, res) => {
+  try {
+    const order = await Job.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+
+    const sampleId = req.params.sampleId;
+    const sample =
+      order.samples.id(sampleId) ||
+      order.samples.find((s) => String(s._id) === String(sampleId));
+    if (!sample) {
+      return res.status(404).json({ success: false, message: "Sample not found" });
+    }
+
+    const urls = coalescePhotoUrls(sample.photoUrl, sample.photoUrls);
+    const indexRaw = req.query.index;
+    if (indexRaw === undefined || indexRaw === null || indexRaw === "") {
+      sample.photoUrls = [];
+      sample.photoUrl = "";
+      sample.hasPhoto = false;
+      sample.photoTakenAt = null;
+    } else {
+      const idx = Number(indexRaw);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= urls.length) {
+        return res.status(400).json({ success: false, message: "Invalid photo index" });
+      }
+      urls.splice(idx, 1);
+      sample.photoUrls = urls;
+      sample.photoUrl = urls[0] || "";
+      sample.hasPhoto = urls.length > 0;
+      if (!urls.length) sample.photoTakenAt = null;
+    }
+
     order.markModified("samples");
     await order.save();
     res.json({ success: true, job: formatJob(order) });
@@ -2284,7 +2414,9 @@ router.put("/phlebo/jobs/:id/complete", verifyPhlebo, async (req, res) => {
       otp: order.phleboStatus === "Consent Done" || order.otpVerifiedAt,
       consent: order.consent?.signed === true,
       barcode: (order.samples || []).length > 0,
-      photo: (order.samples || []).every((s) => s.photoUrl),
+      photo: (order.samples || []).every(
+        (s) => coalescePhotoUrls(s.photoUrl, s.photoUrls).length > 0
+      ),
     };
 
     if (order.phleboStatus !== "Consent Done") {
@@ -2323,7 +2455,7 @@ router.put("/phlebo/jobs/:id/complete", verifyPhlebo, async (req, res) => {
 
 router.post("/phlebo/jobs/:id/handover", verifyPhlebo, async (req, res) => {
   try {
-    const { barcodes, lat, lng, note, bagPhotoUrl, bagTemperatureC } = req.body;
+    const { barcodes, lat, lng, note, bagPhotoUrl, bagPhotoUrls, bagTemperatureC } = req.body;
     const order = await Job.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
@@ -2336,6 +2468,16 @@ router.post("/phlebo/jobs/:id/handover", verifyPhlebo, async (req, res) => {
     const expected = (order.samples || []).map((s) => s.barcode);
     const scanned = Array.isArray(barcodes) ? barcodes.map(String) : expected;
 
+    const bagInputs = [];
+    if (Array.isArray(bagPhotoUrls)) {
+      for (const u of bagPhotoUrls) if (u) bagInputs.push(u);
+    } else if (bagPhotoUrl) {
+      bagInputs.push(bagPhotoUrl);
+    }
+    const savedBagPhotos = bagInputs
+      .map((u) => saveDataUrlImage(u, "bags"))
+      .filter(Boolean);
+
     order.handover = {
       completed: true,
       barcodes: scanned,
@@ -2343,9 +2485,9 @@ router.post("/phlebo/jobs/:id/handover", verifyPhlebo, async (req, res) => {
       lat: typeof lat === "number" ? lat : null,
       lng: typeof lng === "number" ? lng : null,
       note: note || "",
-      // Cold-chain bag evidence — poore batch ki ek photo + temperature reading,
-      // individual sample photos se alag.
-      bagPhotoUrl: bagPhotoUrl ? saveDataUrlImage(bagPhotoUrl, "bags") : "",
+      // Cold-chain bag evidence — multiple angles allowed; bagPhotoUrl = first.
+      bagPhotoUrls: savedBagPhotos,
+      bagPhotoUrl: savedBagPhotos[0] || "",
       bagTemperatureC: typeof bagTemperatureC === "number" ? bagTemperatureC : null,
     };
     order.phleboStatus = "Handed Off";

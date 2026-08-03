@@ -53,4 +53,28 @@ function absoluteMediaUrl(url) {
   return `${base}${url.startsWith("/") ? url : `/${url}`}`;
 }
 
-module.exports = { saveDataUrlImage, absoluteMediaUrl, UPLOADS_ROOT };
+/** Merge legacy single photoUrl with photoUrls[] into one unique list. */
+function coalescePhotoUrls(photoUrl, photoUrls) {
+  const list = [];
+  if (Array.isArray(photoUrls)) {
+    for (const u of photoUrls) {
+      const s = String(u || "").trim();
+      if (s && !list.includes(s)) list.push(s);
+    }
+  }
+  const primary = String(photoUrl || "").trim();
+  if (primary && !list.includes(primary)) list.unshift(primary);
+  return list;
+}
+
+function absoluteMediaUrls(urls) {
+  return (Array.isArray(urls) ? urls : []).map(absoluteMediaUrl).filter(Boolean);
+}
+
+module.exports = {
+  saveDataUrlImage,
+  absoluteMediaUrl,
+  absoluteMediaUrls,
+  coalescePhotoUrls,
+  UPLOADS_ROOT,
+};

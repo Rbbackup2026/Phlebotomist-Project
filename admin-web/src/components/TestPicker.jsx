@@ -11,6 +11,7 @@ export default function TestPicker({ clientId, city, onAdd, disabled }) {
   const [search, setSearch] = useState("");
   const [tests, setTests] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const [manualName, setManualName] = useState("");
   const [manualPrice, setManualPrice] = useState("");
@@ -18,14 +19,22 @@ export default function TestPicker({ clientId, city, onAdd, disabled }) {
   useEffect(() => {
     if (!clientId) {
       setTests([]);
+      setCatalogError("");
       return;
     }
     setLoading(true);
+    setCatalogError("");
     const t = setTimeout(() => {
       adminApi
         .catalog({ clientId, city, search })
-        .then((res) => setTests(res.tests || []))
-        .catch(() => setTests([]))
+        .then((res) => {
+          setTests(res.tests || []);
+          setCatalogError("");
+        })
+        .catch((e) => {
+          setTests([]);
+          setCatalogError(e.message || "Catalog load failed");
+        })
         .finally(() => setLoading(false));
     }, 300);
     return () => clearTimeout(t);
@@ -58,6 +67,8 @@ export default function TestPicker({ clientId, city, onAdd, disabled }) {
           <p className="text-xs text-slate-400 p-2">Select a website first</p>
         ) : loading ? (
           <p className="text-xs text-slate-400 p-2">Loading…</p>
+        ) : catalogError ? (
+          <p className="text-xs text-rose-600 p-2 leading-relaxed">{catalogError}</p>
         ) : tests.length === 0 ? (
           <p className="text-xs text-slate-400 p-2">No tests found</p>
         ) : (

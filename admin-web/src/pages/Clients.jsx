@@ -62,6 +62,12 @@ export default function Clients() {
                       {c.webhookUrl || "—"}
                     </span>
                   </div>
+                  <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                    <span className="text-slate-500">Catalog API</span>
+                    <span className="font-mono text-slate-700 truncate max-w-[180px]" title={c.catalogApiUrl || ""}>
+                      {c.catalogApiUrl || "—"}
+                    </span>
+                  </div>
                   {c.contactEmail ? (
                     <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
                       <span className="text-slate-500">Contact</span>

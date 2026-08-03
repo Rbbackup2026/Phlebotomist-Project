@@ -141,7 +141,10 @@ const jobSchema = new mongoose.Schema(
     samples: [
       {
         barcode: { type: String, trim: true },
+        /** Primary / first photo — kept in sync with photoUrls[0] for older clients */
         photoUrl: { type: String, default: "" },
+        /** All evidence photos for this tube (camera can capture multiple) */
+        photoUrls: [{ type: String }],
         /** Easy flag for Compass/admin — photoUrl itself is a huge base64 string */
         hasPhoto: { type: Boolean, default: false },
         photoTakenAt: { type: Date, default: null },
@@ -166,9 +169,10 @@ const jobSchema = new mongoose.Schema(
       lat: { type: Number, default: null },
       lng: { type: Number, default: null },
       note: { type: String, default: "" },
-      /** Cold-chain bag ki photo + temperature reading, sample photos se alag —
-       *  poore batch/bag ka evidence, ek-ek sample ka nahi. */
+      /** Cold-chain bag evidence — primary/first photo (synced with bagPhotoUrls[0]) */
       bagPhotoUrl: { type: String, default: "" },
+      /** Multiple bag angles / seal shots */
+      bagPhotoUrls: [{ type: String }],
       bagTemperatureC: { type: Number, default: null },
     },
     /** Ek rejected sample ke liye dobara collection trip — original order se link,
