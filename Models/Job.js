@@ -140,6 +140,12 @@ const jobSchema = new mongoose.Schema(
     },
     /** TRF (Test Requisition Form) barcode — pehle scan hota hai; tube barcodes isi se match hone chahiye */
     trfBarcode: { type: String, default: "", trim: true, index: true },
+    /** Photo(s) of the TRF form after barcode scan */
+    trfPhotoUrl: { type: String, default: "" },
+    trfPhotoUrls: [{ type: String }],
+    /** Shared photo(s) of all tubes together (not per-tube) */
+    collectionPhotoUrl: { type: String, default: "" },
+    collectionPhotoUrls: [{ type: String }],
     samples: [
       {
         barcode: { type: String, trim: true },

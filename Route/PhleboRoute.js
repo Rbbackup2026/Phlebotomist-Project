@@ -194,6 +194,30 @@ const formatJob = (order, { mask = false } = {}) => {
     phleboStatus: o.phleboStatus || "Unassigned",
     specialInstructions: o.specialInstructions || "",
     trfBarcode: o.trfBarcode || "",
+    trfPhotoUrls: (() => {
+      const urls = absoluteMediaUrls(
+        coalescePhotoUrls(o.trfPhotoUrl, o.trfPhotoUrls)
+      );
+      return urls;
+    })(),
+    trfPhotoUrl: (() => {
+      const urls = absoluteMediaUrls(
+        coalescePhotoUrls(o.trfPhotoUrl, o.trfPhotoUrls)
+      );
+      return urls[0] || "";
+    })(),
+    collectionPhotoUrls: (() => {
+      const urls = absoluteMediaUrls(
+        coalescePhotoUrls(o.collectionPhotoUrl, o.collectionPhotoUrls)
+      );
+      return urls;
+    })(),
+    collectionPhotoUrl: (() => {
+      const urls = absoluteMediaUrls(
+        coalescePhotoUrls(o.collectionPhotoUrl, o.collectionPhotoUrls)
+      );
+      return urls[0] || "";
+    })(),
     samples: (o.samples || []).map((s) => {
       const photoUrls = absoluteMediaUrls(
         coalescePhotoUrls(s.photoUrl, s.photoUrls)
@@ -2338,7 +2362,7 @@ router.post("/phlebo/jobs/:id/barcode", verifyPhlebo, async (req, res) => {
 
 router.post("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
   try {
-    const { photoUrl, photoUrls, barcode, sampleId, lat, lng, replace } = req.body;
+    const { photoUrl, photoUrls, barcode, sampleId, lat, lng, replace, kind } = req.body;
     const inputs = [];
     if (Array.isArray(photoUrls)) {
       for (const u of photoUrls) if (u) inputs.push(u);
@@ -2357,6 +2381,41 @@ router.post("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
       assignedPhlebo: req.phlebo._id,
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+
+    const scope = String(kind || "sample").toLowerCase();
+    const savedPaths = inputs
+      .map((u) => saveDataUrlImage(u, scope === "trf" ? "trf" : "samples"))
+      .filter(Boolean);
+    if (!savedPaths.length) {
+      return res.status(400).json({ success: false, message: "Invalid photo data" });
+    }
+
+    if (scope === "trf") {
+      if (!String(order.trfBarcode || "").trim()) {
+        return res.status(400).json({ success: false, message: "Scan TRF barcode before photo" });
+      }
+      const existing = coalescePhotoUrls(order.trfPhotoUrl, order.trfPhotoUrls);
+      order.trfPhotoUrls = replace === true ? savedPaths : [...existing, ...savedPaths];
+      order.trfPhotoUrl = order.trfPhotoUrls[0] || "";
+      await order.save();
+      return res.json({ success: true, job: formatJob(order) });
+    }
+
+    if (scope === "collection") {
+      if (!(order.samples || []).length) {
+        return res.status(400).json({
+          success: false,
+          message: "Scan at least one tube barcode before tube photos",
+        });
+      }
+      const existing = coalescePhotoUrls(order.collectionPhotoUrl, order.collectionPhotoUrls);
+      order.collectionPhotoUrls =
+        replace === true ? savedPaths : [...existing, ...savedPaths];
+      order.collectionPhotoUrl = order.collectionPhotoUrls[0] || "";
+      await order.save();
+      return res.json({ success: true, job: formatJob(order) });
+    }
+
     if (!order.samples?.length) {
       return res.status(400).json({ success: false, message: "Scan barcode before photo" });
     }
@@ -2376,13 +2435,6 @@ router.post("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
       return res.status(400).json({ success: false, message: "Sample not found for barcode" });
     }
 
-    const savedPaths = inputs
-      .map((u) => saveDataUrlImage(u, "samples"))
-      .filter(Boolean);
-    if (!savedPaths.length) {
-      return res.status(400).json({ success: false, message: "Invalid photo data" });
-    }
-
     const existing = coalescePhotoUrls(sample.photoUrl, sample.photoUrls);
     sample.photoUrls = replace === true ? savedPaths : [...existing, ...savedPaths];
     sample.photoUrl = sample.photoUrls[0] || "";
@@ -2390,8 +2442,54 @@ router.post("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
     sample.photoTakenAt = new Date();
     if (typeof lat === "number") sample.lat = lat;
     if (typeof lng === "number") sample.lng = lng;
-    // Nested array mutation — mongoose ko explicitly batana zaroori hai
     order.markModified("samples");
+    await order.save();
+    res.json({ success: true, job: formatJob(order) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/** Delete one job-level TRF/collection photo by index, or all if index omitted. */
+router.delete("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
+  try {
+    const order = await Job.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+
+    const scope = String(req.query.kind || "").toLowerCase();
+    if (scope !== "trf" && scope !== "collection") {
+      return res.status(400).json({
+        success: false,
+        message: "kind=trf or kind=collection required",
+      });
+    }
+
+    const urls =
+      scope === "trf"
+        ? coalescePhotoUrls(order.trfPhotoUrl, order.trfPhotoUrls)
+        : coalescePhotoUrls(order.collectionPhotoUrl, order.collectionPhotoUrls);
+    const indexRaw = req.query.index;
+    let next = [];
+    if (indexRaw === undefined || indexRaw === null || indexRaw === "") {
+      next = [];
+    } else {
+      const idx = Number(indexRaw);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= urls.length) {
+        return res.status(400).json({ success: false, message: "Invalid photo index" });
+      }
+      next = urls.filter((_, i) => i !== idx);
+    }
+
+    if (scope === "trf") {
+      order.trfPhotoUrls = next;
+      order.trfPhotoUrl = next[0] || "";
+    } else {
+      order.collectionPhotoUrls = next;
+      order.collectionPhotoUrl = next[0] || "";
+    }
     await order.save();
     res.json({ success: true, job: formatJob(order) });
   } catch (error) {
@@ -2524,14 +2622,23 @@ router.put("/phlebo/jobs/:id/complete", verifyPhlebo, async (req, res) => {
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
 
+    const trfPhotos = coalescePhotoUrls(order.trfPhotoUrl, order.trfPhotoUrls);
+    const collectionPhotos = coalescePhotoUrls(
+      order.collectionPhotoUrl,
+      order.collectionPhotoUrls
+    );
+    const perTubePhotos =
+      (order.samples || []).length > 0 &&
+      (order.samples || []).every(
+        (s) => coalescePhotoUrls(s.photoUrl, s.photoUrls).length > 0
+      );
     const checklist = {
       otp: order.phleboStatus === "Consent Done" || order.otpVerifiedAt,
       consent: order.consent?.signed === true,
       trf: !!String(order.trfBarcode || "").trim(),
+      trfPhoto: trfPhotos.length > 0,
       barcode: (order.samples || []).length > 0,
-      photo: (order.samples || []).every(
-        (s) => coalescePhotoUrls(s.photoUrl, s.photoUrls).length > 0
-      ),
+      photo: collectionPhotos.length > 0 || perTubePhotos,
     };
 
     if (order.phleboStatus !== "Consent Done") {
@@ -2542,10 +2649,17 @@ router.put("/phlebo/jobs/:id/complete", verifyPhlebo, async (req, res) => {
       });
     }
 
-    if (!checklist.consent || !checklist.trf || !checklist.barcode || !checklist.photo) {
+    if (
+      !checklist.consent ||
+      !checklist.trf ||
+      !checklist.trfPhoto ||
+      !checklist.barcode ||
+      !checklist.photo
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Checklist incomplete — TRF and at least one photo per tube are required",
+        message:
+          "Checklist incomplete — TRF photo and at least one all-tubes photo are required",
         checklist,
       });
     }
