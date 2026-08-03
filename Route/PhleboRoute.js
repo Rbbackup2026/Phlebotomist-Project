@@ -1181,11 +1181,11 @@ router.post("/phlebo/auth/otp/send", async (req, res) => {
     if (!phlebo) {
       return res.status(404).json({
         success: false,
-        message: "Ye number registered nahi hai. Apne city admin se contact karke pehle add karwayein.",
+        message: "This number is not registered. Contact your city admin to get added first.",
       });
     }
     if (phlebo.status !== "active") {
-      return res.status(403).json({ success: false, message: "Account inactive — apne admin se sampark karein" });
+      return res.status(403).json({ success: false, message: "Account inactive — contact your admin" });
     }
 
     const otp =
@@ -1444,7 +1444,7 @@ router.post("/phlebo/attendance/check-out", verifyPhlebo, async (req, res) => {
       checkOutAt: null,
     }).sort({ checkInAt: -1 });
     if (!attendance) {
-      return res.status(400).json({ success: false, message: "Pehle check-in karein" });
+      return res.status(400).json({ success: false, message: "Please check in first" });
     }
     attendance.checkOutAt = new Date();
     attendance.checkOutLat = typeof lat === "number" ? lat : null;
@@ -1731,7 +1731,7 @@ router.post("/phlebo/jobs/:id/tests", verifyPhlebo, async (req, res) => {
     if (!ADD_TEST_STATUSES.includes(order.phleboStatus)) {
       return res.status(400).json({
         success: false,
-        message: "Tests sirf visit ke dauran add ho sakte hain (Arrived → Consent Done)",
+        message: "Tests can only be added during the visit (Arrived → Consent Done)",
       });
     }
 
@@ -1788,7 +1788,7 @@ router.post("/phlebo/jobs/:id/tests", verifyPhlebo, async (req, res) => {
     await saveAndNotify(order);
     res.json({
       success: true,
-      message: `${catalogItem.name} add ho gaya`,
+      message: `${catalogItem.name} added`,
       job: formatJob(order),
     });
   } catch (error) {
@@ -1809,7 +1809,7 @@ async function removePhleboAddedTest(req, res) {
     if (!ADD_TEST_STATUSES.includes(order.phleboStatus)) {
       return res.status(400).json({
         success: false,
-        message: "Tests sirf visit ke dauran remove ho sakte hain (Arrived → Consent Done)",
+        message: "Tests can only be removed during the visit (Arrived → Consent Done)",
       });
     }
 
@@ -1826,7 +1826,7 @@ async function removePhleboAddedTest(req, res) {
     if (idx < 0) {
       return res.status(400).json({
         success: false,
-        message: "Sirf visit pe add kiye tests remove ho sakte hain",
+        message: "Only tests added during the visit can be removed",
       });
     }
 
@@ -1841,7 +1841,7 @@ async function removePhleboAddedTest(req, res) {
     await saveAndNotify(order);
     res.json({
       success: true,
-      message: `${removed.name || "Test"} remove ho gaya`,
+      message: `${removed.name || "Test"} removed`,
       job: formatJob(order),
     });
   } catch (error) {
@@ -2237,11 +2237,11 @@ router.post("/phlebo/jobs/:id/trf", verifyPhlebo, async (req, res) => {
       return res.status(400).json({ success: false, message: "Complete consent first" });
     }
 
-    // Tubes already scanned → TRF change mat karo (mismatch risk)
+    // Tubes already scanned → do not change TRF (mismatch risk)
     if (order.trfBarcode && (order.samples || []).length > 0 && order.trfBarcode !== code) {
       return res.status(400).json({
         success: false,
-        message: "TRF already set — tubes scanned hain, TRF change nahi ho sakta",
+        message: "TRF already set — tubes are scanned, TRF cannot be changed",
       });
     }
 
@@ -2276,7 +2276,7 @@ router.post("/phlebo/jobs/:id/barcode", verifyPhlebo, async (req, res) => {
     if (!trf) {
       return res.status(400).json({
         success: false,
-        message: "Pehle TRF barcode scan karo",
+        message: "Scan the TRF barcode first",
       });
     }
 
@@ -2286,7 +2286,7 @@ router.post("/phlebo/jobs/:id/barcode", verifyPhlebo, async (req, res) => {
     if (!tubeU.includes(trfU)) {
       return res.status(400).json({
         success: false,
-        message: `Tube barcode TRF se match nahi karta (TRF: ${trf})`,
+        message: `Tube barcode does not match TRF (TRF: ${trf})`,
       });
     }
 
@@ -2455,7 +2455,7 @@ async function removeJobSample(req, res) {
     if (order.phleboStatus === "Handed Off") {
       return res.status(400).json({
         success: false,
-        message: "Handover ke baad tube delete nahi ho sakti",
+        message: "Tubes cannot be deleted after handover",
       });
     }
 
@@ -2476,7 +2476,7 @@ async function removeJobSample(req, res) {
 
     res.json({
       success: true,
-      message: `Tube ${removed.barcode || ""} remove ho gaya`,
+      message: `Tube ${removed.barcode || ""} removed`,
       job: formatJob(order),
     });
   } catch (error) {
@@ -2536,7 +2536,7 @@ router.put("/phlebo/jobs/:id/complete", verifyPhlebo, async (req, res) => {
     if (!checklist.consent || !checklist.trf || !checklist.barcode || !checklist.photo) {
       return res.status(400).json({
         success: false,
-        message: "Checklist incomplete — TRF + har tube pe photo zaroori",
+        message: "Checklist incomplete — TRF and at least one photo per tube are required",
         checklist,
       });
     }
