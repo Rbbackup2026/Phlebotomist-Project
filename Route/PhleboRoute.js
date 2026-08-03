@@ -2496,6 +2496,15 @@ router.put("/phlebo/jobs/:id/payment", verifyPhlebo, async (req, res) => {
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
 
+    // Collect payment after sample is collected (or already handed off for late settle)
+    const allowed = ["Sample Collected", "Handed Off"];
+    if (!allowed.includes(order.phleboStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Mark sample collected before collecting payment",
+      });
+    }
+
     order.paymentStatus = "Paid";
     order.paymentCollectedAt = new Date();
     order.paymentCollectedMethod = method;
@@ -2569,6 +2578,14 @@ router.post("/phlebo/jobs/:id/handover", verifyPhlebo, async (req, res) => {
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
     if (order.phleboStatus !== "Sample Collected") {
       return res.status(400).json({ success: false, message: "Collect sample first" });
+    }
+
+    const due = Number(order.totalAmount || order.amount || 0);
+    if (due > 0 && order.paymentStatus !== "Paid") {
+      return res.status(400).json({
+        success: false,
+        message: "Collect payment before handover",
+      });
     }
 
     const expected = (order.samples || []).map((s) => s.barcode);
