@@ -686,8 +686,13 @@ export default function Orders() {
                         <span className="font-mono">{s.barcode}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-slate-500">{s.sampleType}</span>
-                          {s.photoUrl || s.hasPhoto ? (
-                            <span className="text-emerald-600 font-medium">Photo ✓</span>
+                          {s.photoUrl || s.hasPhoto || (s.photoUrls && s.photoUrls.length) ? (
+                            <span className="text-emerald-600 font-medium">
+                              Photo ✓
+                              {Array.isArray(s.photoUrls) && s.photoUrls.length > 1
+                                ? ` (${s.photoUrls.length})`
+                                : ""}
+                            </span>
                           ) : (
                             <span className="text-amber-600 font-medium">No photo</span>
                           )}
@@ -702,13 +707,27 @@ export default function Orders() {
                           ) : null}
                         </div>
                       </div>
-                      {s.photoUrl ? (
-                        <img
-                          src={s.photoUrl}
-                          alt={`Sample ${s.barcode}`}
-                          className="mt-2 rounded-lg max-h-48 w-full object-contain bg-white border border-slate-100"
-                        />
-                      ) : null}
+                      {(() => {
+                        const urls =
+                          Array.isArray(s.photoUrls) && s.photoUrls.length
+                            ? s.photoUrls.filter(Boolean)
+                            : s.photoUrl
+                              ? [s.photoUrl]
+                              : [];
+                        if (!urls.length) return null;
+                        return (
+                          <div className="mt-2 flex gap-2 overflow-x-auto">
+                            {urls.map((src, pi) => (
+                              <img
+                                key={pi}
+                                src={src}
+                                alt={`Sample ${s.barcode} ${pi + 1}`}
+                                className="rounded-lg max-h-48 max-w-[220px] object-contain bg-white border border-slate-100"
+                              />
+                            ))}
+                          </div>
+                        );
+                      })()}
                       {s.rejected ? (
                         <div className="mt-1 text-rose-700 font-medium">
                           Rejected by lab{s.rejectionReason ? `: ${s.rejectionReason}` : ""}
@@ -732,15 +751,30 @@ export default function Orders() {
                       ? ` · ${detailFor.handover.bagTemperatureC}°C`
                       : ""}
                   </div>
-                  {detailFor.handover.bagPhotoUrl ? (
-                    <img
-                      src={detailFor.handover.bagPhotoUrl}
-                      alt="Cold-chain bag"
-                      className="rounded-lg max-h-40 object-cover"
-                    />
-                  ) : (
-                    <div className="text-slate-400">No bag photo submitted</div>
-                  )}
+                  {(() => {
+                    const bagUrls =
+                      Array.isArray(detailFor.handover.bagPhotoUrls) &&
+                      detailFor.handover.bagPhotoUrls.length
+                        ? detailFor.handover.bagPhotoUrls.filter(Boolean)
+                        : detailFor.handover.bagPhotoUrl
+                          ? [detailFor.handover.bagPhotoUrl]
+                          : [];
+                    if (!bagUrls.length) {
+                      return <div className="text-slate-400">No bag photo submitted</div>;
+                    }
+                    return (
+                      <div className="flex gap-2 overflow-x-auto">
+                        {bagUrls.map((src, bi) => (
+                          <img
+                            key={bi}
+                            src={src}
+                            alt={`Cold-chain bag ${bi + 1}`}
+                            className="rounded-lg max-h-40 max-w-[200px] object-cover"
+                          />
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             ) : null}
