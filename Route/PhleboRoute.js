@@ -2443,6 +2443,50 @@ router.delete("/phlebo/jobs/:id/samples/:sampleId/photo", verifyPhlebo, async (r
   }
 });
 
+/** Scanned tube / sample hatao (collection se pehle) */
+async function removeJobSample(req, res) {
+  try {
+    const order = await Job.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+
+    if (order.phleboStatus === "Handed Off") {
+      return res.status(400).json({
+        success: false,
+        message: "Handover ke baad tube delete nahi ho sakti",
+      });
+    }
+
+    const sampleId = String(req.params.sampleId || req.body?.sampleId || "").trim();
+    if (!sampleId) {
+      return res.status(400).json({ success: false, message: "sampleId required" });
+    }
+
+    const idx = (order.samples || []).findIndex((s) => String(s._id) === sampleId);
+    if (idx < 0) {
+      return res.status(404).json({ success: false, message: "Sample / tube not found" });
+    }
+
+    const removed = order.samples[idx];
+    order.samples.splice(idx, 1);
+    order.markModified("samples");
+    await order.save();
+
+    res.json({
+      success: true,
+      message: `Tube ${removed.barcode || ""} remove ho gaya`,
+      job: formatJob(order),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+router.post("/phlebo/jobs/:id/samples/remove", verifyPhlebo, removeJobSample);
+router.delete("/phlebo/jobs/:id/samples/:sampleId", verifyPhlebo, removeJobSample);
+
 router.put("/phlebo/jobs/:id/payment", verifyPhlebo, async (req, res) => {
   try {
     const method = String(req.body.method || "Cash").trim();
