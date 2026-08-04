@@ -1,7 +1,6 @@
 const jwt = require("jsonwebtoken");
 const OpsUser = require("../Models/OpsUser");
-
-const JWT_SECRET = process.env.JWT_SECRET || "defaultSecretKey";
+const { getJwtSecret } = require("../services/securityConfig");
 
 const getBearerToken = (req) => {
   const authHeader = req.headers.authorization || "";
@@ -19,7 +18,7 @@ const verifyToken = async (req, res, next) => {
       });
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, getJwtSecret());
     const user = await OpsUser.findById(decoded.id).select("-password");
     if (!user) {
       return res.status(401).json({ success: false, message: "User not found" });

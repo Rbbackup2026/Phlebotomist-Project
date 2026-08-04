@@ -75,41 +75,55 @@ async function seedPlatform() {
     }
   }
 
-  // Platform ka pehla superadmin — isi se login karke city Admins banaye
-  // jaate hain (POST /v1/api/register-admin), aur wo aage apne city ke Labs
-  // (POST /v1/api/register-lab). Isliye iska role "superadmin" hai, "admin" nahi —
-  // superadmin ka city hamesha blank rehta hai (sab cities uska scope hai).
-  const opsEmail = (process.env.OPS_EMAIL || "ops@phlebo.local").toLowerCase();
-  const opsPassword = process.env.OPS_PASSWORD || "ops123456";
-  let ops = await OpsUser.findOne({ email: opsEmail });
-  if (!ops) {
-    ops = await OpsUser.create({
-      email: opsEmail,
-      password: await bcrypt.hash(opsPassword, 10),
-      name: "Phlebo Superadmin",
-      role: "superadmin",
-    });
-    console.log(`[seed] Superadmin user: ${opsEmail} / ${opsPassword}`);
-  } else if (ops.role === "admin" && !ops.city) {
-    // Upgrade path: purane setups mein ye account "admin" role + blank city ke
-    // saath bana tha — usko superadmin bana do taaki register-admin route use ho sake.
-    ops.role = "superadmin";
-    await ops.save();
-    console.log(`[seed] Upgraded existing ops user to superadmin: ${opsEmail}`);
+  // Pehla superadmin env se AUTO create NAHI hota.
+  // Sirf API: POST /v1/api/register-superadmin (header x-seed-key)
+  // Uske baad superadmin khud city admins / labs banata hai.
+  // Legacy: SEED_OPS_USER=true + OPS_EMAIL/OPS_PASSWORD se boot pe seed (optional).
+  const seedOps = String(process.env.SEED_OPS_USER || "false").toLowerCase() === "true";
+  if (seedOps) {
+    const opsEmail = (process.env.OPS_EMAIL || "ops@phlebo.local").toLowerCase();
+    const opsPassword = process.env.OPS_PASSWORD || "ops123456";
+    let ops = await OpsUser.findOne({ email: opsEmail });
+    if (!ops) {
+      ops = await OpsUser.create({
+        email: opsEmail,
+        password: await bcrypt.hash(opsPassword, 10),
+        name: "Phlebo Superadmin",
+        role: "superadmin",
+      });
+      console.log(`[seed] Superadmin user: ${opsEmail} / ${opsPassword}`);
+    } else if (ops.role === "admin" && !ops.city) {
+      ops.role = "superadmin";
+      await ops.save();
+      console.log(`[seed] Upgraded existing ops user to superadmin: ${opsEmail}`);
+    }
+  } else {
+    const hasSuper = await OpsUser.findOne({ role: "superadmin" }).select("_id");
+    if (!hasSuper) {
+      console.log(
+        "[seed] No superadmin yet — create via POST /v1/api/register-superadmin (x-seed-key)"
+      );
+    }
   }
 
   await seedInventory();
+
+  const superadmin = await OpsUser.findOne({ role: "superadmin" }).select("email");
 
   console.log("────────────────────────────────────────");
   console.log("Phlebo platform ready (own DB)");
   console.log(`  Client : ${client.name} (${client.slug})`);
   console.log(`  API key: ${client.apiKey}`);
   console.log(`  Webhook: ${client.webhookUrl}`);
-  console.log(`  Ops    : ${opsEmail}`);
+  if (superadmin) {
+    console.log(`  Ops    : ${superadmin.email}`);
+  } else {
+    console.log("  Ops    : (none) — POST /v1/api/register-superadmin");
+  }
   console.log("  Put same API key in Wello .env → PHLEBO_API_KEY");
   console.log("────────────────────────────────────────");
 
-  return { client, ops };
+  return { client, ops: superadmin || null };
 }
 
 module.exports = { seedPlatform };

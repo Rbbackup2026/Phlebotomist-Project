@@ -4,6 +4,108 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const OpsUser = require("../Models/OpsUser");
 const { verifyToken, requireRole } = require("./authMiddleware");
+const {
+  getJwtSecret,
+  getPlatformSeedKey,
+  isProduction,
+} = require("../services/securityConfig");
+const { authLimiter } = require("../middleware/rateLimit");
+
+/**
+ * First-time bootstrap — pehla superadmin API se banao.
+ * Sirf tab chalega jab DB mein koi superadmin na ho.
+ * Extra gate: header x-seed-key = PLATFORM_SEED_KEY (Postman abuse rokne ke liye).
+ * Ek baar ban gaya → ye route forever 403.
+ *
+ * POST /v1/api/register-superadmin
+ * Headers: x-seed-key: <PLATFORM_SEED_KEY>
+ * Body: { email, password, name? }
+ */
+router.post("/register-superadmin", authLimiter, async (req, res) => {
+  try {
+    const existing = await OpsUser.findOne({ role: "superadmin" });
+    if (existing) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Superadmin pehle se maujood hai. Login use karo, ya naya city admin banane ke liye /register-admin.",
+      });
+    }
+
+    const seedKey = getPlatformSeedKey();
+    if (!req.headers["x-seed-key"] || String(req.headers["x-seed-key"]) !== seedKey) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden — x-seed-key required for first-time setup",
+      });
+    }
+
+    const { email, password, name } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "email aur password required hain",
+      });
+    }
+    if (String(password).length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password kam se kam 6 characters ka ho",
+      });
+    }
+
+    const cleanEmail = String(email).toLowerCase().trim();
+    const emailTaken = await OpsUser.findOne({ email: cleanEmail });
+    if (emailTaken) {
+      return res.status(400).json({
+        success: false,
+        message: "Ye email pehle se registered hai",
+      });
+    }
+
+    const superadmin = await OpsUser.create({
+      email: cleanEmail,
+      password: await bcrypt.hash(String(password), 10),
+      name: name ? String(name).trim() : "Phlebo Superadmin",
+      role: "superadmin",
+      city: "",
+    });
+
+    const expiresIn = "24h";
+    const token = jwt.sign(
+      {
+        email: superadmin.email,
+        id: superadmin._id,
+        role: "superadmin",
+        city: "",
+      },
+      getJwtSecret(),
+      { expiresIn }
+    );
+
+    const userResponse = superadmin.toObject();
+    delete userResponse.password;
+
+    res.status(201).json({
+      success: true,
+      message: "Superadmin created — ab is token / login se APIs use kar sakte ho",
+      userdata: userResponse,
+      token,
+      expiresIn,
+      note: isProduction()
+        ? undefined
+        : "Dev tip: PLATFORM_SEED_KEY default phlebo-seed-dev hai (.env)",
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "Ye email pehle se registered hai",
+      });
+    }
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+});
 
 /** Ops admin login — Phlebo own DB (OpsUser) */
 router.post("/login", async (req, res) => {
@@ -35,7 +137,7 @@ router.post("/login", async (req, res) => {
         role: userdata.role || "ops",
         city: userdata.city || "",
       },
-      process.env.JWT_SECRET || "defaultSecretKey",
+      getJwtSecret(),
       { expiresIn }
     );
 

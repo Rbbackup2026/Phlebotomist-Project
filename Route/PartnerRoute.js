@@ -157,8 +157,16 @@ router.get("/partner/jobs/:externalOrderId", verifyPartner, async (req, res) => 
 /** POST /partner/clients — platform seed only (protected by PLATFORM_SEED_KEY) */
 router.post("/partner/register-client", async (req, res) => {
   try {
-    const seedKey = process.env.PLATFORM_SEED_KEY || "phlebo-seed-dev";
-    if (String(req.headers["x-seed-key"] || "") !== seedKey) {
+    // Production: disable unless ALLOW_CLIENT_REGISTER=true (prevents Postman abuse)
+    const { isProduction, getPlatformSeedKey } = require("../services/securityConfig");
+    if (isProduction() && String(process.env.ALLOW_CLIENT_REGISTER || "").toLowerCase() !== "true") {
+      return res.status(403).json({
+        success: false,
+        message: "Client registration disabled in production",
+      });
+    }
+    const seedKey = getPlatformSeedKey();
+    if (!req.headers["x-seed-key"] || String(req.headers["x-seed-key"]) !== seedKey) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
     const { name, slug, webhookUrl, contactEmail } = req.body || {};

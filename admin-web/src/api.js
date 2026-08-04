@@ -21,6 +21,16 @@ export function clearSession() {
   localStorage.removeItem(USER_KEY);
 }
 
+/** Append admin JWT for /uploads images (<img> cannot send Authorization). */
+export function mediaUrl(url) {
+  if (!url) return "";
+  if (/^(data:)/i.test(url)) return url;
+  const token = getToken();
+  if (!token || !/\/uploads\//i.test(url) || /[?&]token=/.test(url)) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
+}
+
 async function request(path, options = {}) {
   const token = getToken();
   const headers = {

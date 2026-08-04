@@ -6,7 +6,7 @@ import Modal from "../components/Modal.jsx";
 import DateRangeBar from "../components/DateRangeBar.jsx";
 import TestPicker from "../components/TestPicker.jsx";
 import { useDateRange } from "../hooks/useDateRange.js";
-import { adminApi, authApi } from "../api.js";
+import { adminApi, authApi, mediaUrl } from "../api.js";
 import { useAuth } from "../context/AuthContext.jsx";
 
 /** Normalize free-form slotDate → YYYY-MM-DD for Collections deep links. */
@@ -866,7 +866,7 @@ export default function Orders() {
                             {urls.map((src, pi) => (
                               <img
                                 key={pi}
-                                src={src}
+                                src={mediaUrl(src)}
                                 alt={`Sample ${s.barcode} ${pi + 1}`}
                                 className="rounded-lg max-h-48 max-w-[220px] object-contain bg-white border border-slate-100"
                               />
@@ -913,7 +913,7 @@ export default function Orders() {
                         {bagUrls.map((src, bi) => (
                           <img
                             key={bi}
-                            src={src}
+                            src={mediaUrl(src)}
                             alt={`Cold-chain bag ${bi + 1}`}
                             className="rounded-lg max-h-40 max-w-[200px] object-cover"
                           />

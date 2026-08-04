@@ -24,9 +24,13 @@ const {
   absoluteMediaUrls,
   coalescePhotoUrls,
 } = require("../services/media");
+const {
+  getJwtSecret,
+  allowDemoOtp,
+  DEMO_OTP,
+  isDemoOtp,
+} = require("../services/securityConfig");
 
-const JWT_SECRET = process.env.JWT_SECRET || "defaultSecretKey";
-const DEMO_OTP = "123456";
 const ADD_TEST_STATUSES = ["Arrived", "OTP Verified", "Consent Done", "Sample Collected"];
 // Geofence audit radius for arrival (soft flag only — never blocks arrival, geocoding
 // can legitimately be off by this much for apartment complexes/wrong pins).
@@ -149,7 +153,7 @@ const verifyPhlebo = async (req, res, next) => {
     if (!token) {
       return res.status(401).json({ success: false, message: "Login required" });
     }
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, getJwtSecret());
     if (decoded.role !== "phlebo") {
       return res.status(403).json({ success: false, message: "Phlebo access only" });
     }
@@ -1226,9 +1230,9 @@ router.post("/phlebo/auth/otp/send", async (req, res) => {
     }
 
     const otp =
-      process.env.NODE_ENV === "production"
-        ? crypto.randomInt(100000, 999999).toString()
-        : DEMO_OTP;
+      allowDemoOtp()
+        ? DEMO_OTP
+        : crypto.randomInt(100000, 999999).toString();
 
     phlebo.otp = otp;
     phlebo.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
@@ -1239,7 +1243,7 @@ router.post("/phlebo/auth/otp/send", async (req, res) => {
     res.json({
       success: true,
       message: "OTP sent",
-      demoOtp: process.env.NODE_ENV === "production" ? undefined : otp,
+      demoOtp: allowDemoOtp() ? otp : undefined,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -1258,7 +1262,7 @@ router.post("/phlebo/auth/otp/verify", async (req, res) => {
 
     const valid =
       (phlebo.otp && phlebo.otp === otp && phlebo.otpExpires && phlebo.otpExpires > new Date()) ||
-      otp === DEMO_OTP;
+      isDemoOtp(otp);
 
     if (!valid) {
       return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
@@ -1270,7 +1274,7 @@ router.post("/phlebo/auth/otp/verify", async (req, res) => {
 
     const token = jwt.sign(
       { id: phlebo._id, role: "phlebo", phone: phlebo.phone },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: "30d" }
     );
 
@@ -2148,9 +2152,9 @@ router.post("/phlebo/jobs/:id/otp/send", verifyPhlebo, async (req, res) => {
     }
 
     const otp =
-      process.env.NODE_ENV === "production"
-        ? crypto.randomInt(100000, 999999).toString()
-        : DEMO_OTP;
+      allowDemoOtp()
+        ? DEMO_OTP
+        : crypto.randomInt(100000, 999999).toString();
 
     order.patientOtp = otp;
     order.patientOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
@@ -2161,7 +2165,7 @@ router.post("/phlebo/jobs/:id/otp/send", verifyPhlebo, async (req, res) => {
     res.json({
       success: true,
       message: "OTP sent to patient mobile",
-      demoOtp: process.env.NODE_ENV === "production" ? undefined : otp,
+      demoOtp: allowDemoOtp() ? otp : undefined,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -2183,7 +2187,7 @@ router.post("/phlebo/jobs/:id/otp/verify", verifyPhlebo, async (req, res) => {
     order.otpAttempts = (order.otpAttempts || 0) + 1;
     const valid =
       (order.patientOtp && order.patientOtp === otp && order.patientOtpExpires > new Date()) ||
-      otp === DEMO_OTP;
+      isDemoOtp(otp);
 
     if (!valid) {
       await order.save();
@@ -2270,6 +2274,12 @@ router.post("/phlebo/jobs/:id/trf", verifyPhlebo, async (req, res) => {
       assignedPhlebo: req.phlebo._id,
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (order.phleboStatus === "Handed Off") {
+      return res.status(400).json({
+        success: false,
+        message: "Job is handed off — TRF cannot be changed",
+      });
+    }
     if (order.phleboStatus !== "Consent Done" && order.phleboStatus !== "Sample Collected") {
       return res.status(400).json({ success: false, message: "Complete consent first" });
     }
@@ -2340,6 +2350,12 @@ router.post("/phlebo/jobs/:id/barcode", verifyPhlebo, async (req, res) => {
       assignedPhlebo: req.phlebo._id,
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (order.phleboStatus === "Handed Off") {
+      return res.status(400).json({
+        success: false,
+        message: "Job is handed off — tubes cannot be changed",
+      });
+    }
     if (order.phleboStatus !== "Consent Done" && order.phleboStatus !== "Sample Collected") {
       if (order.phleboStatus !== "Consent Done") {
         return res.status(400).json({ success: false, message: "Complete consent first" });
@@ -2432,6 +2448,13 @@ router.post("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
 
+    if (order.phleboStatus === "Handed Off") {
+      return res.status(400).json({
+        success: false,
+        message: "Job is handed off — photos cannot be changed",
+      });
+    }
+
     const scope = String(kind || "sample").toLowerCase();
     const savedPaths = inputs
       .map((u) => saveDataUrlImage(u, scope === "trf" ? "trf" : "samples"))
@@ -2509,6 +2532,13 @@ router.delete("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
 
+    if (order.phleboStatus === "Handed Off") {
+      return res.status(400).json({
+        success: false,
+        message: "Job is handed off — photos cannot be changed",
+      });
+    }
+
     const scope = String(req.query.kind || "").toLowerCase();
     if (scope !== "trf" && scope !== "collection") {
       return res.status(400).json({
@@ -2555,6 +2585,13 @@ router.delete("/phlebo/jobs/:id/samples/:sampleId/photo", verifyPhlebo, async (r
       assignedPhlebo: req.phlebo._id,
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+
+    if (order.phleboStatus === "Handed Off") {
+      return res.status(400).json({
+        success: false,
+        message: "Job is handed off — photos cannot be changed",
+      });
+    }
 
     const sampleId = req.params.sampleId;
     const sample =
@@ -2644,12 +2681,15 @@ router.put("/phlebo/jobs/:id/payment", verifyPhlebo, async (req, res) => {
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
 
-    // Collect payment after sample is collected (or already handed off for late settle)
-    const allowed = ["Sample Collected", "Handed Off"];
+    // Collect payment after sample is collected — not after handover (read-only)
+    const allowed = ["Sample Collected"];
     if (!allowed.includes(order.phleboStatus)) {
       return res.status(400).json({
         success: false,
-        message: "Mark sample collected before collecting payment",
+        message:
+          order.phleboStatus === "Handed Off"
+            ? "Job is handed off — no further edits allowed"
+            : "Mark sample collected before collecting payment",
       });
     }
 
