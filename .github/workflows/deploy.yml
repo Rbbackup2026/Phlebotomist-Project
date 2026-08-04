@@ -26,8 +26,14 @@ jobs:
             git fetch origin
             git reset --hard origin/main
 
-            echo "Installing dependencies..."
+            echo "Installing backend dependencies..."
             npm install
+
+            echo "Building admin web (Orders/Collections UI)..."
+            cd admin-web
+            npm install
+            npm run build
+            cd ..
 
             echo "Restarting PM2..."
             pm2 restart phlebo-backend
