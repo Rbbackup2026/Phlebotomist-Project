@@ -263,7 +263,7 @@ const formatJob = (order, { mask = false } = {}) => {
 
 router.get("/admin/orders", verifyToken, attachScope, async (req, res) => {
   try {
-    const { status, phleboStatus, clientId, clientSlug, from, to, limit = 50 } = req.query;
+    const { status, phleboStatus, clientId, clientSlug, from, to, limit = 20, page = 1 } = req.query;
     // City-wise Admin ko sirf apne city ke orders, Lab ko sirf apne assign kiye orders —
     // superadmin ke liye ye {} rehta hai (sab dikhta hai). Route/authMiddleware.js dekho.
     const filter = { ...req.scopeFilter };
@@ -293,9 +293,22 @@ router.get("/admin/orders", verifyToken, attachScope, async (req, res) => {
       if (to && !isNaN(new Date(to))) createdAt.$lte = new Date(new Date(to).setHours(23, 59, 59, 999));
       if (Object.keys(createdAt).length) filter.createdAt = createdAt;
     }
-    const limitNum = Math.min(200, Math.max(1, Number(limit) || 50));
-    const orders = await Job.find(filter).sort({ createdAt: -1 }).limit(limitNum);
-    res.json({ success: true, orders, total: orders.length });
+    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
+    const pageNum = Math.max(1, Number(page) || 1);
+    const skip = (pageNum - 1) * limitNum;
+    const [total, orders] = await Promise.all([
+      Job.countDocuments(filter),
+      Job.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+    ]);
+    const totalPages = Math.max(1, Math.ceil(total / limitNum));
+    res.json({
+      success: true,
+      orders,
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

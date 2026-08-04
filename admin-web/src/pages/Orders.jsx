@@ -79,6 +79,10 @@ export default function Orders() {
   const [labs, setLabs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const PAGE_SIZE = 20;
 
   const [status, setStatus] = useState(searchParams.get("status") || "All");
   const [phleboStatus, setPhleboStatus] = useState(searchParams.get("phleboStatus") || "All");
@@ -103,17 +107,28 @@ export default function Orders() {
 
   const [addTestSaving, setAddTestSaving] = useState(false);
 
-  async function load() {
+  async function load(pageArg = page) {
     setLoading(true);
     setError("");
     try {
       const [o, c, p, l] = await Promise.all([
-        adminApi.orders({ status, phleboStatus, clientSlug, from: range.from, to: range.to, limit: 200 }),
+        adminApi.orders({
+          status,
+          phleboStatus,
+          clientSlug,
+          from: range.from,
+          to: range.to,
+          limit: PAGE_SIZE,
+          page: pageArg,
+        }),
         canManage ? adminApi.clients() : Promise.resolve({ clients: [] }),
         canManage ? adminApi.phlebos() : Promise.resolve({ phlebos: [] }),
         canManage ? authApi.labs() : Promise.resolve({ labs: [] }),
       ]);
       setOrders(o.orders || []);
+      setTotal(o.total || 0);
+      setTotalPages(o.totalPages || 1);
+      setPage(o.page || pageArg);
       setClients(c.clients || []);
       setPhlebos(p.phlebos || []);
       setLabs(l.labs || []);
@@ -125,7 +140,13 @@ export default function Orders() {
   }
 
   useEffect(() => {
-    load();
+    load(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, status, phleboStatus, clientSlug, range]);
+
+  // Filters / date range change → jump to first page
+  useEffect(() => {
+    setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, phleboStatus, clientSlug, range]);
 
@@ -504,6 +525,40 @@ export default function Orders() {
               </tbody>
             </table>
           </div>
+
+          {!loading && total > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 bg-slate-50/80">
+              <p className="text-xs text-slate-500">
+                Showing{" "}
+                <span className="font-semibold text-slate-700">
+                  {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)}
+                </span>{" "}
+                of <span className="font-semibold text-slate-700">{total}</span> orders
+                <span className="text-slate-400"> · {PAGE_SIZE} per page</span>
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary !py-1.5 !px-3 !text-xs"
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </button>
+                <span className="text-xs font-semibold text-slate-600 tabular-nums px-1">
+                  Page {page} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  className="btn-secondary !py-1.5 !px-3 !text-xs"
+                  disabled={page >= totalPages || loading}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
