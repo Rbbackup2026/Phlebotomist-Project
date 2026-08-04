@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import Topbar from "../components/Topbar.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
@@ -8,6 +8,32 @@ import TestPicker from "../components/TestPicker.jsx";
 import { useDateRange } from "../hooks/useDateRange.js";
 import { adminApi, authApi } from "../api.js";
 import { useAuth } from "../context/AuthContext.jsx";
+
+/** Normalize free-form slotDate → YYYY-MM-DD for Collections deep links. */
+function toYmd(raw) {
+  const s = String(raw || "").trim();
+  if (!s) {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const dmy = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);
+  if (dmy) {
+    return `${dmy[3]}-${String(dmy[2]).padStart(2, "0")}-${String(dmy[1]).padStart(2, "0")}`;
+  }
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+}
+
+function collectionsHref(slotDate, opts = {}) {
+  const params = new URLSearchParams({ date: toYmd(slotDate) });
+  if (opts.focusUnassigned) params.set("focus", "unassigned");
+  return `/collections?${params.toString()}`;
+}
 
 const emptyNewOrder = {
   clientId: "",
@@ -127,6 +153,11 @@ export default function Orders() {
     if (!labAssignFor) return [];
     return labs.filter((l) => !labAssignFor.city || l.city === labAssignFor.city);
   }, [labAssignFor, labs]);
+
+  const needsAssignOrders = useMemo(
+    () => orders.filter((o) => !o.assignedPhlebo),
+    [orders]
+  );
 
   async function doAssign(phleboId) {
     setAssignSaving(true);
@@ -285,6 +316,43 @@ export default function Orders() {
 
         <DateRangeBar preset={preset} range={range} onPreset={applyPreset} onCustom={setCustom} />
 
+        {canManage ? (
+          <div className="rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-white px-4 py-3 flex flex-wrap items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold text-amber-900">
+                Dispatch board
+                {needsAssignOrders.length > 0 ? (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-bold">
+                    {needsAssignOrders.length} unassigned in this list
+                  </span>
+                ) : (
+                  <span className="ml-2 text-xs font-medium text-slate-500">No unassigned in this list</span>
+                )}
+              </div>
+              <p className="text-xs text-amber-800/80 mt-0.5">
+                See free phlebo slots on Collections and assign from green cells — Orders stays for search & details.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 shrink-0">
+              {needsAssignOrders.length > 0 ? (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setPhleboStatus("NeedsAssign")}
+                >
+                  Show needs assignment
+                </button>
+              ) : null}
+              <Link
+                to={collectionsHref(new Date().toISOString().slice(0, 10), { focusUnassigned: true })}
+                className="btn-primary"
+              >
+                Open Collections
+              </Link>
+            </div>
+          </div>
+        ) : null}
+
         <div className="card p-4 flex flex-wrap gap-3 items-end">
           <div>
             <label className="label">Order status</label>
@@ -409,6 +477,15 @@ export default function Orders() {
                               <button className="btn-primary" onClick={() => setAssignFor(o)}>
                                 Assign
                               </button>
+                              {!o.assignedPhlebo ? (
+                                <Link
+                                  to={collectionsHref(o.slotDate, { focusUnassigned: true })}
+                                  className="btn-secondary"
+                                  title="Assign on free slot board"
+                                >
+                                  Dispatch
+                                </Link>
+                              ) : null}
                               <button className="btn-secondary" onClick={() => setLabAssignFor(o)}>
                                 Lab
                               </button>
@@ -437,6 +514,19 @@ export default function Orders() {
               Order for <span className="font-medium text-slate-700">{assignFor.patientName}</span> ·{" "}
               {assignFor.clientName || assignFor.clientSlug}
             </p>
+            <Link
+              to={collectionsHref(assignFor.slotDate, { focusUnassigned: !assignFor.assignedPhlebo })}
+              className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-left hover:bg-emerald-100/80 transition-colors"
+              onClick={() => setAssignFor(null)}
+            >
+              <div>
+                <div className="text-sm font-semibold text-emerald-900">Open on Collections board</div>
+                <div className="text-xs text-emerald-800/80">
+                  {assignFor.slotDate} · {assignFor.slotTime || "—"} — pick a free green slot
+                </div>
+              </div>
+              <span className="text-emerald-700 text-sm font-bold shrink-0">Go →</span>
+            </Link>
             <div className="max-h-72 overflow-y-auto space-y-1.5">
               {eligiblePhlebos.length === 0 ? (
                 <p className="text-sm text-slate-400 py-4 text-center">
@@ -454,6 +544,7 @@ export default function Orders() {
                       <div className="text-sm font-medium text-slate-800">{p.name}</div>
                       <div className="text-xs text-slate-400">
                         {p.employeeId} · {p.zone || p.city || "—"}
+                        {p.dutyStatus ? ` · ${p.dutyStatus}` : ""}
                       </div>
                     </div>
                     <Badge>{p.status}</Badge>

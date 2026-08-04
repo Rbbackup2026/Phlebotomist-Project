@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import Topbar from "../components/Topbar.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
@@ -139,8 +139,12 @@ const LEGEND = [
 export default function Collections() {
   const { user } = useAuth();
   const canManage = user?.role === "admin";
+  const [searchParams, setSearchParams] = useSearchParams();
   const todayStr = ymd(new Date());
-  const [date, setDate] = useState(todayStr);
+  const dateFromUrl = searchParams.get("date");
+  const [date, setDate] = useState(
+    dateFromUrl && /^\d{4}-\d{2}-\d{2}$/.test(dateFromUrl) ? dateFromUrl : todayStr
+  );
   const [slotsFromApi, setSlotsFromApi] = useState([]);
   const [phlebos, setPhlebos] = useState([]);
   const [jobs, setJobs] = useState([]);
@@ -153,6 +157,7 @@ export default function Collections() {
   const [statusFilter, setStatusFilter] = useState(() => new Set());
   const unassignedRef = useRef(null);
   const boardScrollRef = useRef(null);
+  const focusUnassignedDone = useRef(false);
 
   const [leaveModalFor, setLeaveModalFor] = useState(null);
   const [leaveList, setLeaveList] = useState([]);
@@ -198,6 +203,24 @@ export default function Collections() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
+  // Orders (or Dashboard) can deep-link with ?date=YYYY-MM-DD
+  useEffect(() => {
+    const d = searchParams.get("date");
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d !== date) {
+      focusUnassignedDone.current = false;
+      setDate(d);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  function changeDate(next) {
+    setDate(next);
+    focusUnassignedDone.current = false;
+    const p = new URLSearchParams(searchParams);
+    p.set("date", next);
+    setSearchParams(p, { replace: true });
+  }
+
   const slots = useMemo(() => buildTimelineSlots(slotsFromApi), [slotsFromApi]);
 
   const jobsByPhleboSlot = useMemo(() => {
@@ -214,6 +237,18 @@ export default function Collections() {
     () => jobs.filter((j) => !j.assignedPhlebo).sort((a, b) => (a.slotTime > b.slotTime ? 1 : -1)),
     [jobs]
   );
+
+  // After load, scroll to unassigned strip when ?focus=unassigned (from Orders)
+  useEffect(() => {
+    if (loading || focusUnassignedDone.current) return;
+    if (searchParams.get("focus") !== "unassigned") return;
+    if (!unassignedJobs.length && !unassignedRef.current) return;
+    focusUnassignedDone.current = true;
+    const t = setTimeout(() => {
+      unassignedRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+    return () => clearTimeout(t);
+  }, [loading, searchParams, unassignedJobs.length]);
 
   const locationSummaryByZone = useMemo(() => {
     const byZone = {};
@@ -457,7 +492,7 @@ export default function Collections() {
               <button
                 type="button"
                 className="px-2.5 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-                onClick={() => setDate((d) => addDays(d, -1))}
+                onClick={() => changeDate(addDays(date, -1))}
                 aria-label="Previous day"
               >
                 ◀
@@ -466,19 +501,19 @@ export default function Collections() {
                 type="date"
                 className="border-x border-slate-200 px-2 py-1.5 text-sm focus:outline-none w-[138px]"
                 value={date}
-                onChange={(e) => setDate(e.target.value)}
+                onChange={(e) => changeDate(e.target.value)}
               />
               <button
                 type="button"
                 className="px-2.5 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-                onClick={() => setDate((d) => addDays(d, 1))}
+                onClick={() => changeDate(addDays(date, 1))}
                 aria-label="Next day"
               >
                 ▶
               </button>
             </div>
             {date !== todayStr ? (
-              <button type="button" className="btn-secondary !py-1.5 !text-xs" onClick={() => setDate(todayStr)}>
+              <button type="button" className="btn-secondary !py-1.5 !text-xs" onClick={() => changeDate(todayStr)}>
                 Today
               </button>
             ) : null}
