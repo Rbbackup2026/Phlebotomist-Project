@@ -33,8 +33,12 @@ router.get("/track/:token", async (req, res) => {
     res.json({
       success: true,
       pickupId: order.pickupId || String(order._id).slice(-8).toUpperCase(),
-      status: STATUS_LABELS[order.phleboStatus] || order.phleboStatus,
+      status:
+        order.status === "Cancelled"
+          ? "Visit cancelled — Ops will reach out if needed"
+          : STATUS_LABELS[order.phleboStatus] || order.phleboStatus,
       phleboStatus: order.phleboStatus,
+      orderStatus: order.status,
       slotDate: order.slotDate,
       slotTime: order.slotTime,
       assignedPhleboName: order.assignedPhleboName || "",

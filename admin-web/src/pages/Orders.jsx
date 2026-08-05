@@ -477,7 +477,15 @@ export default function Orders() {
                         {o.slotDate} · {o.slotTime}
                       </td>
                       <td className="px-4 py-3">
-                        <Badge>{o.phleboStatus || "Unassigned"}</Badge>
+                        <div className="flex flex-wrap gap-1">
+                          {o.status === "Cancelled" ? <Badge>Cancelled</Badge> : null}
+                          <Badge>{o.phleboStatus || "Unassigned"}</Badge>
+                        </div>
+                        {o.rejectedReason ? (
+                          <div className="text-xs text-rose-600 mt-1 max-w-[220px] truncate" title={o.rejectedReason}>
+                            {o.rejectedReason}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3">
                         <Badge>{o.paymentStatus}</Badge>
@@ -495,10 +503,12 @@ export default function Orders() {
                           </button>
                           {canManage ? (
                             <>
-                              <button className="btn-primary" onClick={() => setAssignFor(o)}>
-                                Assign
-                              </button>
-                              {!o.assignedPhlebo ? (
+                              {o.status !== "Cancelled" && o.phleboStatus !== "Rejected" ? (
+                                <button className="btn-primary" onClick={() => setAssignFor(o)}>
+                                  Assign
+                                </button>
+                              ) : null}
+                              {!o.assignedPhlebo && o.status !== "Cancelled" ? (
                                 <Link
                                   to={collectionsHref(o.slotDate, { focusUnassigned: true })}
                                   className="btn-secondary"
@@ -507,10 +517,13 @@ export default function Orders() {
                                   Dispatch
                                 </Link>
                               ) : null}
-                              <button className="btn-secondary" onClick={() => setLabAssignFor(o)}>
-                                Lab
-                              </button>
-                              {!["Sample Collected", "Handed Off"].includes(o.phleboStatus) ? (
+                              {o.status !== "Cancelled" ? (
+                                <button className="btn-secondary" onClick={() => setLabAssignFor(o)}>
+                                  Lab
+                                </button>
+                              ) : null}
+                              {!["Sample Collected", "Handed Off", "Rejected"].includes(o.phleboStatus) &&
+                              o.status !== "Cancelled" ? (
                                 <button className="btn-secondary" onClick={() => openReschedule(o)}>
                                   Reschedule
                                 </button>
@@ -753,6 +766,20 @@ export default function Orders() {
                 </span>
               ) : null}
             </div>
+
+            {detailFor.rejectedReason ? (
+              <div className="rounded-lg bg-rose-50 text-rose-800 text-xs px-3 py-2">
+                <span className="font-semibold">Cancel / reject reason: </span>
+                {detailFor.rejectedReason}
+              </div>
+            ) : null}
+
+            {detailFor.adminNote ? (
+              <div className="rounded-lg bg-slate-50 text-slate-700 text-xs px-3 py-2">
+                <span className="font-semibold">Admin note: </span>
+                {detailFor.adminNote}
+              </div>
+            ) : null}
 
             {detailFor.rescheduleRequested ? (
               <div className="rounded-lg bg-rose-50 text-rose-700 text-xs px-3 py-2">

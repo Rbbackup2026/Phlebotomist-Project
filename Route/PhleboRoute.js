@@ -2063,6 +2063,50 @@ router.post("/phlebo/jobs/:id/reject", verifyPhlebo, async (req, res) => {
   }
 });
 
+/**
+ * Customer-side cancel after phlebo has reached the location (Arrived / OTP Verified).
+ * Sets order status Cancelled so it appears under Admin → Orders → Cancelled,
+ * keeps the assigned phlebo for audit, and stores the remark on rejectedReason.
+ */
+router.post("/phlebo/jobs/:id/customer-cancel", verifyPhlebo, async (req, res) => {
+  try {
+    const remark = String(req.body.remark || req.body.reason || "").trim();
+    if (!remark) {
+      return res.status(400).json({ success: false, message: "Cancel remark required" });
+    }
+    const order = await Job.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+
+    const allowed = ["Arrived", "OTP Verified"];
+    if (!allowed.includes(order.phleboStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Customer cancel only allowed after arrival (current: ${order.phleboStatus})`,
+      });
+    }
+
+    const reason = `Customer cancelled: ${remark}`;
+    order.status = "Cancelled";
+    order.phleboStatus = "Rejected";
+    order.rejectedReason = reason;
+    order.adminNote = order.adminNote
+      ? `${order.adminNote} | ${reason}`
+      : reason;
+    // Keep assignedPhlebo so Ops can see which phlebo reported the customer cancel.
+    await saveAndNotify(order);
+    res.json({
+      success: true,
+      message: "Order cancelled — customer refused",
+      job: formatJob(order),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.post("/phlebo/jobs/:id/en-route", verifyPhlebo, async (req, res) => {
   try {
     const { lat, lng } = req.body || {};
@@ -2231,8 +2275,9 @@ router.post("/phlebo/jobs/:id/consent", verifyPhlebo, async (req, res) => {
         consentLat: lat ?? null,
         consentLng: lng ?? null,
       };
+      order.status = "Cancelled";
       order.phleboStatus = "Rejected";
-      order.rejectedReason = "Consent Declined";
+      order.rejectedReason = "Customer cancelled: Consent Declined";
       order.adminNote = (order.adminNote || "") + " | Consent declined by patient";
       await saveAndNotify(order);
       return res.json({
