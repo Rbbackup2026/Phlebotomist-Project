@@ -98,11 +98,11 @@ export default function Sidebar() {
       ) : null}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex flex-col min-h-screen shrink-0 transition-all duration-200 ease-in-out
+        className={`fixed inset-y-0 left-0 z-40 flex flex-col h-screen shrink-0 overflow-hidden transition-all duration-200 ease-in-out
           ${theme.aside}
           ${mobileOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0
           ${collapsed ? "md:w-[76px]" : "md:w-60"} w-64
-          md:static md:z-auto`}
+          md:sticky md:top-0 md:self-start`}
       >
         <div className={`px-4 py-5 flex items-center gap-2.5 ${collapsed ? "md:flex-col md:gap-2 md:px-2" : ""}`}>
           <div
