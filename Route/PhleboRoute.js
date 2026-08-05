@@ -924,6 +924,13 @@ router.put("/admin/orders/:id/assign-phlebo", verifyToken, requireRole("admin"),
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
     }
 
+    if (order.status === "Cancelled") {
+      return res.status(400).json({
+        success: false,
+        message: "Cancelled order assign nahi ho sakta",
+      });
+    }
+
     if (!phleboId) {
       order.assignedPhlebo = null;
       order.assignedPhleboName = "";
@@ -1039,6 +1046,12 @@ router.put("/admin/orders/:id/reschedule", verifyToken, requireRole("admin"), as
         message: "Ye order pehle se complete ho chuka hai — reschedule nahi ho sakta",
       });
     }
+    if (order.status === "Cancelled") {
+      return res.status(400).json({
+        success: false,
+        message: "Cancelled order reschedule nahi ho sakta",
+      });
+    }
 
     const prevDate = order.slotDate;
     const prevTime = order.slotTime;
@@ -1047,6 +1060,9 @@ router.put("/admin/orders/:id/reschedule", verifyToken, requireRole("admin"), as
 
     const note = `Rescheduled: ${prevDate} ${prevTime} → ${order.slotDate} ${order.slotTime} (by ${req.user.name || req.user.email})`;
     order.adminNote = order.adminNote ? `${order.adminNote} | ${note}` : note;
+    order.rescheduleRequested = false;
+    order.rescheduleRequestedAt = null;
+    order.rescheduleRequestNote = "";
 
     if (phleboId) {
       const phlebo = await Phlebotomist.findById(phleboId);
@@ -2064,9 +2080,10 @@ router.post("/phlebo/jobs/:id/reject", verifyPhlebo, async (req, res) => {
 });
 
 /**
- * Customer-side cancel after phlebo has reached the location (Arrived / OTP Verified).
- * Sets order status Cancelled so it appears under Admin → Orders → Cancelled,
- * keeps the assigned phlebo for audit, and stores the remark on rejectedReason.
+ * Customer-side visit abort after phlebo has reached the location (Arrived / OTP Verified).
+ * NEVER permanently cancels the order — only Admin can set status=Cancelled.
+ * Soft outcome: unassign + return to pool so Ops can reschedule / re-assign later.
+ * If customer asked to reschedule, flag rescheduleRequested for Admin dashboard.
  */
 router.post("/phlebo/jobs/:id/customer-cancel", verifyPhlebo, async (req, res) => {
   try {
@@ -2088,20 +2105,101 @@ router.post("/phlebo/jobs/:id/customer-cancel", verifyPhlebo, async (req, res) =
       });
     }
 
-    const reason = `Customer cancelled: ${remark}`;
-    order.status = "Cancelled";
-    order.phleboStatus = "Rejected";
+    const wantsReschedule =
+      req.body.wantsReschedule === true ||
+      /reschedule/i.test(remark);
+
+    const reportedBy = req.phlebo.name || "phlebo";
+    const reason = wantsReschedule
+      ? `Customer asked to reschedule (by ${reportedBy}): ${remark}`
+      : `Customer refused visit (by ${reportedBy}): ${remark}`;
+
+    // Soft only — permanent Cancelled is Admin-only (PUT /admin/orders/:id/cancel).
+    if (order.status === "Cancelled") {
+      return res.status(400).json({ success: false, message: "Order already cancelled" });
+    }
+
     order.rejectedReason = reason;
-    order.adminNote = order.adminNote
-      ? `${order.adminNote} | ${reason}`
-      : reason;
-    // Keep assignedPhlebo so Ops can see which phlebo reported the customer cancel.
+    order.adminNote = order.adminNote ? `${order.adminNote} | ${reason}` : reason;
+
+    if (wantsReschedule) {
+      order.rescheduleRequested = true;
+      order.rescheduleRequestedAt = new Date();
+      order.rescheduleRequestNote = remark.slice(0, 500);
+    }
+
+    // Return to Ops pool for reassign / reschedule; clear in-progress visit fields.
+    order.assignedPhlebo = null;
+    order.assignedPhleboName = "";
+    order.assignedBy = "";
+    order.assignedAt = null;
+    order.phleboStatus = "Unassigned";
+    order.acceptedAt = null;
+    order.enRouteAt = null;
+    order.enRouteLat = null;
+    order.enRouteLng = null;
+    order.arrivedAt = null;
+    order.arrivedLat = null;
+    order.arrivedLng = null;
+    order.patientOtp = null;
+    order.patientOtpExpires = null;
+    order.otpVerifiedAt = null;
+    order.otpAttempts = 0;
+
     await saveAndNotify(order);
     res.json({
       success: true,
-      message: "Order cancelled — customer refused",
+      message: wantsReschedule
+        ? "Visit closed — Admin can reschedule and re-assign this order"
+        : "Visit closed — Admin can re-assign or permanently cancel",
       job: formatJob(order),
     });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * Permanent cancel — Admin / Superadmin only.
+ * Phlebo customer-cancel is soft; only this sets status=Cancelled.
+ */
+router.put("/admin/orders/:id/cancel", verifyToken, requireRole("admin"), async (req, res) => {
+  try {
+    const reason = String(req.body.reason || req.body.remark || "").trim();
+    if (!reason) {
+      return res.status(400).json({ success: false, message: "Cancel reason required" });
+    }
+
+    const order = await Job.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+    if (req.user.role === "admin" && order.city !== req.user.city) {
+      return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
+    }
+
+    if (["Sample Collected", "Handed Off"].includes(order.phleboStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Sample already collected — permanent cancel nahi ho sakta",
+      });
+    }
+    if (order.status === "Cancelled") {
+      return res.status(400).json({ success: false, message: "Order pehle se cancelled hai" });
+    }
+
+    const note = `Permanently cancelled by ${req.user.name || req.user.email}: ${reason}`;
+    // Sirf order status Cancelled — phleboStatus Rejected nahi; admin list mein
+    // Cancelled status filter / badge se dikhega.
+    order.status = "Cancelled";
+    order.rejectedReason = note;
+    order.adminNote = order.adminNote ? `${order.adminNote} | ${note}` : note;
+    order.rescheduleRequested = false;
+    order.assignedPhlebo = null;
+    order.assignedPhleboName = "";
+    order.assignedBy = "";
+    order.assignedAt = null;
+    await saveAndNotify(order);
+
+    res.json({ success: true, message: "Order permanently cancelled", order });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -2275,14 +2373,19 @@ router.post("/phlebo/jobs/:id/consent", verifyPhlebo, async (req, res) => {
         consentLat: lat ?? null,
         consentLng: lng ?? null,
       };
-      order.status = "Cancelled";
-      order.phleboStatus = "Rejected";
-      order.rejectedReason = "Customer cancelled: Consent Declined";
+      // Soft only — permanent cancel Admin karta hai. Order Ops pool mein wapas.
+      const reason = `Customer refused visit (by ${req.phlebo.name || "phlebo"}): Consent Declined`;
+      order.rejectedReason = reason;
       order.adminNote = (order.adminNote || "") + " | Consent declined by patient";
+      order.assignedPhlebo = null;
+      order.assignedPhleboName = "";
+      order.assignedBy = "";
+      order.assignedAt = null;
+      order.phleboStatus = "Unassigned";
       await saveAndNotify(order);
       return res.json({
         success: true,
-        message: "Consent declined — CRM notified",
+        message: "Consent declined — Admin can re-assign or permanently cancel",
         job: formatJob(order),
       });
     }

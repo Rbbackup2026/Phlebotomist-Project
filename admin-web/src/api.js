@@ -108,6 +108,11 @@ export const adminApi = {
     request(`/admin/orders/${orderId}/tests`, { method: "POST", body: payload }),
   rescheduleOrder: (orderId, payload) =>
     request(`/admin/orders/${orderId}/reschedule`, { method: "PUT", body: payload }),
+  cancelOrder: (orderId, reason) =>
+    request(`/admin/orders/${orderId}/cancel`, {
+      method: "PUT",
+      body: { reason },
+    }),
   clients: () => request("/admin/clients"),
   phlebos: () => request("/admin/phlebos"),
   phlebo: (id) => request(`/admin/phlebos/${id}`),

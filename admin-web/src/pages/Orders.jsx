@@ -99,6 +99,11 @@ export default function Orders() {
   const [rescheduleSaving, setRescheduleSaving] = useState(false);
   const [rescheduleError, setRescheduleError] = useState("");
 
+  const [cancelFor, setCancelFor] = useState(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelSaving, setCancelSaving] = useState(false);
+  const [cancelError, setCancelError] = useState("");
+
   const [showNewOrder, setShowNewOrder] = useState(false);
   const [newOrder, setNewOrder] = useState(emptyNewOrder);
   const [newOrderItems, setNewOrderItems] = useState([]);
@@ -239,6 +244,31 @@ export default function Orders() {
       setRescheduleError(e2.message);
     } finally {
       setRescheduleSaving(false);
+    }
+  }
+
+  function openCancel(order) {
+    setCancelFor(order);
+    setCancelReason("");
+    setCancelError("");
+  }
+
+  async function submitCancel(e) {
+    e.preventDefault();
+    if (!cancelFor) return;
+    const reason = cancelReason.trim();
+    if (!reason) return setCancelError("Cancel reason required");
+    setCancelSaving(true);
+    setCancelError("");
+    try {
+      await adminApi.cancelOrder(cancelFor._id, reason);
+      setCancelFor(null);
+      if (detailFor?._id === cancelFor._id) setDetailFor(null);
+      await load();
+    } catch (e2) {
+      setCancelError(e2.message);
+    } finally {
+      setCancelSaving(false);
     }
   }
 
@@ -477,15 +507,9 @@ export default function Orders() {
                         {o.slotDate} · {o.slotTime}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {o.status === "Cancelled" ? <Badge>Cancelled</Badge> : null}
-                          <Badge>{o.phleboStatus || "Unassigned"}</Badge>
-                        </div>
-                        {o.rejectedReason ? (
-                          <div className="text-xs text-rose-600 mt-1 max-w-[220px] truncate" title={o.rejectedReason}>
-                            {o.rejectedReason}
-                          </div>
-                        ) : null}
+                        <Badge>
+                          {o.status === "Cancelled" ? "Cancelled" : o.phleboStatus || "Unassigned"}
+                        </Badge>
                       </td>
                       <td className="px-4 py-3">
                         <Badge>{o.paymentStatus}</Badge>
@@ -522,10 +546,19 @@ export default function Orders() {
                                   Lab
                                 </button>
                               ) : null}
-                              {!["Sample Collected", "Handed Off", "Rejected"].includes(o.phleboStatus) &&
+                              {!["Sample Collected", "Handed Off"].includes(o.phleboStatus) &&
                               o.status !== "Cancelled" ? (
                                 <button className="btn-secondary" onClick={() => openReschedule(o)}>
                                   Reschedule
+                                </button>
+                              ) : null}
+                              {!["Sample Collected", "Handed Off"].includes(o.phleboStatus) &&
+                              o.status !== "Cancelled" ? (
+                                <button
+                                  className="btn-secondary !text-rose-700 !border-rose-200"
+                                  onClick={() => openCancel(o)}
+                                >
+                                  Cancel
                                 </button>
                               ) : null}
                             </>
@@ -733,6 +766,37 @@ export default function Orders() {
         ) : null}
       </Modal>
 
+      <Modal open={!!cancelFor} onClose={() => setCancelFor(null)} title="Permanently cancel order">
+        {cancelFor ? (
+          <form onSubmit={submitCancel} className="space-y-4">
+            {cancelError ? (
+              <div className="rounded-lg bg-rose-50 text-rose-700 text-sm px-3 py-2">{cancelError}</div>
+            ) : null}
+            <p className="text-sm text-slate-500">
+              <span className="font-medium text-slate-700">{cancelFor.patientName}</span> ·{" "}
+              {cancelFor.slotDate} · {cancelFor.slotTime}
+            </p>
+            <div className="rounded-lg bg-rose-50 text-rose-800 text-xs px-3 py-2">
+              Order status Cancelled ho jayega. Dubara assign / reschedule nahi hoga.
+            </div>
+            <div>
+              <label className="label">Cancel reason</label>
+              <textarea
+                required
+                rows={3}
+                className="input"
+                placeholder="Why is this order permanently cancelled?"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+              />
+            </div>
+            <button type="submit" disabled={cancelSaving} className="btn-primary w-full !bg-rose-600 hover:!bg-rose-700">
+              {cancelSaving ? "Cancelling…" : "Permanently cancel"}
+            </button>
+          </form>
+        ) : null}
+      </Modal>
+
       <Modal open={!!detailFor} onClose={() => setDetailFor(null)} title="Order details" width="max-w-lg">
         {detailFor ? (
           <div className="space-y-4 text-sm">
@@ -748,7 +812,9 @@ export default function Orders() {
             <Field label="Address" value={`${detailFor.address}, ${detailFor.area || ""} ${detailFor.city || ""} ${detailFor.pincode || ""}`} />
             <div className="flex flex-wrap gap-2">
               <Badge>{detailFor.status}</Badge>
-              <Badge>{detailFor.phleboStatus || "Unassigned"}</Badge>
+              {detailFor.status !== "Cancelled" ? (
+                <Badge>{detailFor.phleboStatus || "Unassigned"}</Badge>
+              ) : null}
               {detailFor.walkInSourceJobId && (
                 <span className="inline-flex items-center rounded-full bg-violet-100 text-violet-700 px-3 py-1 text-xs font-semibold">
                   Walk-in (added by phlebo on-site)
@@ -766,20 +832,6 @@ export default function Orders() {
                 </span>
               ) : null}
             </div>
-
-            {detailFor.rejectedReason ? (
-              <div className="rounded-lg bg-rose-50 text-rose-800 text-xs px-3 py-2">
-                <span className="font-semibold">Cancel / reject reason: </span>
-                {detailFor.rejectedReason}
-              </div>
-            ) : null}
-
-            {detailFor.adminNote ? (
-              <div className="rounded-lg bg-slate-50 text-slate-700 text-xs px-3 py-2">
-                <span className="font-semibold">Admin note: </span>
-                {detailFor.adminNote}
-              </div>
-            ) : null}
 
             {detailFor.rescheduleRequested ? (
               <div className="rounded-lg bg-rose-50 text-rose-700 text-xs px-3 py-2">
