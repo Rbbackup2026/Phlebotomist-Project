@@ -1,5 +1,4 @@
 import { NavLink } from "react-router-dom";
-import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useSidebar } from "../context/SidebarContext.jsx";
 
@@ -21,20 +20,11 @@ const baseItems = [
 // (single city, single lab) doesn't get this section at all.
 const teamItem = { to: "/team", label: "Team", icon: "👥" };
 
-const COLLAPSE_KEY = "phlebo_admin_sidebar_collapsed";
-
 export default function Sidebar() {
   const { user } = useAuth();
-  const { mobileOpen, setMobileOpen } = useSidebar();
+  const { mobileOpen, setMobileOpen, collapsed, toggleCollapsed } = useSidebar();
   const role = user?.role;
   const isSuperadmin = role === "superadmin";
-
-  // Desktop collapse (icon-only) — remembered across reloads. Mobile always
-  // opens full-width as an overlay drawer, collapse only applies to md+.
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === "1");
-  useEffect(() => {
-    localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0");
-  }, [collapsed]);
 
   // Superadmin sirf oversight karta hai — cross-city report (Dashboard) + Team
   // (city admins ka account management). Din-ke-din operational pages
@@ -114,17 +104,27 @@ export default function Sidebar() {
           ${collapsed ? "md:w-[76px]" : "md:w-60"} w-64
           md:static md:z-auto`}
       >
-        <div className={`px-4 py-6 flex items-center gap-2.5 ${collapsed ? "md:justify-center md:px-0" : ""}`}>
+        <div className={`px-4 py-5 flex items-center gap-2.5 ${collapsed ? "md:flex-col md:gap-2 md:px-2" : ""}`}>
           <div
             className={`h-9 w-9 rounded-xl flex items-center justify-center text-white font-bold shrink-0 ${theme.logoBg}`}
             style={{ boxShadow: theme.logoShadow }}
           >
             {theme.logoMark}
           </div>
-          <div className={collapsed ? "md:hidden" : "min-w-0"}>
+          <div className={collapsed ? "md:hidden" : "min-w-0 flex-1"}>
             <div className={`font-semibold leading-none truncate ${theme.brandText}`}>{theme.brandLabel}</div>
             <div className={`text-[11px] mt-0.5 truncate ${theme.subText}`}>{roleLabel}</div>
           </div>
+
+          {/* Top collapse / close controls */}
+          <button
+            onClick={toggleCollapsed}
+            className={`hidden md:flex h-8 w-8 rounded-lg items-center justify-center shrink-0 ${theme.ghostBtn}`}
+            aria-label={collapsed ? "Expand menu" : "Collapse menu"}
+            title={collapsed ? "Expand menu" : "Collapse menu"}
+          >
+            {collapsed ? "»" : "«"}
+          </button>
           <button
             onClick={() => setMobileOpen(false)}
             className={`ml-auto md:hidden h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${theme.ghostBtn}`}
@@ -154,18 +154,6 @@ export default function Sidebar() {
             </NavLink>
           ))}
         </nav>
-
-        {/* Desktop-only collapse/expand toggle — mobile drawer hamesha full-width khulta hai */}
-        <button
-          onClick={() => setCollapsed((c) => !c)}
-          className={`hidden md:flex items-center gap-2 mx-3 mb-2 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
-            collapsed ? "justify-center" : ""
-          } ${theme.ghostBtn}`}
-          title={collapsed ? "Expand menu" : "Collapse menu"}
-        >
-          <span>{collapsed ? "»" : "«"}</span>
-          {!collapsed ? <span>Collapse</span> : null}
-        </button>
 
         <div className={`px-5 py-4 text-[11px] border-t ${theme.footerBorder} ${theme.footerText} ${collapsed ? "md:hidden" : ""}`}>
           {theme.footerLabel}
