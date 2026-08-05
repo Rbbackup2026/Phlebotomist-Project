@@ -527,12 +527,13 @@ export default function Orders() {
                           </button>
                           {canManage ? (
                             <>
-                              {o.status !== "Cancelled" && o.phleboStatus !== "Rejected" ? (
+                              {!["Sample Collected", "Handed Off"].includes(o.phleboStatus) ? (
                                 <button className="btn-primary" onClick={() => setAssignFor(o)}>
                                   Assign
                                 </button>
                               ) : null}
-                              {!o.assignedPhlebo && o.status !== "Cancelled" ? (
+                              {!o.assignedPhlebo &&
+                              !["Sample Collected", "Handed Off"].includes(o.phleboStatus) ? (
                                 <Link
                                   to={collectionsHref(o.slotDate, { focusUnassigned: true })}
                                   className="btn-secondary"
@@ -541,13 +542,10 @@ export default function Orders() {
                                   Dispatch
                                 </Link>
                               ) : null}
-                              {o.status !== "Cancelled" ? (
-                                <button className="btn-secondary" onClick={() => setLabAssignFor(o)}>
-                                  Lab
-                                </button>
-                              ) : null}
-                              {!["Sample Collected", "Handed Off"].includes(o.phleboStatus) &&
-                              o.status !== "Cancelled" ? (
+                              <button className="btn-secondary" onClick={() => setLabAssignFor(o)}>
+                                Lab
+                              </button>
+                              {!["Sample Collected", "Handed Off"].includes(o.phleboStatus) ? (
                                 <button className="btn-secondary" onClick={() => openReschedule(o)}>
                                   Reschedule
                                 </button>
@@ -777,7 +775,7 @@ export default function Orders() {
               {cancelFor.slotDate} · {cancelFor.slotTime}
             </p>
             <div className="rounded-lg bg-rose-50 text-rose-800 text-xs px-3 py-2">
-              Order status Cancelled ho jayega. Dubara assign / reschedule nahi hoga.
+              Order status Cancelled ho jayega. Baad mein Assign / Reschedule se dubara open kar sakte ho.
             </div>
             <div>
               <label className="label">Cancel reason</label>

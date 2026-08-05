@@ -924,11 +924,15 @@ router.put("/admin/orders/:id/assign-phlebo", verifyToken, requireRole("admin"),
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
     }
 
+    // Cancelled / Rejected orders bhi dubara assign ho sakte hain (reschedule case).
     if (order.status === "Cancelled") {
-      return res.status(400).json({
-        success: false,
-        message: "Cancelled order assign nahi ho sakta",
-      });
+      order.status = "Booked";
+      order.rescheduleRequested = false;
+      order.rescheduleRequestedAt = null;
+      order.rescheduleRequestNote = "";
+      order.adminNote = order.adminNote
+        ? `${order.adminNote} | Reopened from Cancelled (by ${req.user.name || req.user.email})`
+        : `Reopened from Cancelled (by ${req.user.name || req.user.email})`;
     }
 
     if (!phleboId) {
@@ -1046,12 +1050,6 @@ router.put("/admin/orders/:id/reschedule", verifyToken, requireRole("admin"), as
         message: "Ye order pehle se complete ho chuka hai — reschedule nahi ho sakta",
       });
     }
-    if (order.status === "Cancelled") {
-      return res.status(400).json({
-        success: false,
-        message: "Cancelled order reschedule nahi ho sakta",
-      });
-    }
 
     const prevDate = order.slotDate;
     const prevTime = order.slotTime;
@@ -1063,6 +1061,9 @@ router.put("/admin/orders/:id/reschedule", verifyToken, requireRole("admin"), as
     order.rescheduleRequested = false;
     order.rescheduleRequestedAt = null;
     order.rescheduleRequestNote = "";
+    if (order.status === "Cancelled") {
+      order.status = "Booked";
+    }
 
     if (phleboId) {
       const phlebo = await Phlebotomist.findById(phleboId);
