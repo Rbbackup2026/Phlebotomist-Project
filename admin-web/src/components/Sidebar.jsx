@@ -97,12 +97,19 @@ export default function Sidebar() {
         />
       ) : null}
 
+      {/* Desktop spacer — fixed sidebar ke liye width reserve, content overlap na ho */}
+      <div
+        className={`hidden md:block shrink-0 transition-all duration-200 ease-in-out ${
+          collapsed ? "w-[76px]" : "w-60"
+        }`}
+        aria-hidden
+      />
+
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex flex-col h-screen shrink-0 overflow-hidden transition-all duration-200 ease-in-out
+        className={`fixed inset-y-0 left-0 z-40 flex flex-col h-dvh overflow-hidden transition-all duration-200 ease-in-out
           ${theme.aside}
           ${mobileOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0
-          ${collapsed ? "md:w-[76px]" : "md:w-60"} w-64
-          md:sticky md:top-0 md:self-start`}
+          ${collapsed ? "md:w-[76px]" : "md:w-60"} w-64`}
       >
         <div className={`px-4 py-5 flex items-center gap-2.5 ${collapsed ? "md:flex-col md:gap-2 md:px-2" : ""}`}>
           <div
