@@ -66,6 +66,29 @@ const PHLEBO_STATUS_OPTIONS = [
   "Handed Off",
 ];
 
+function resolveCancelledBy(order) {
+  if (order?.cancelledBy === "phlebo") {
+    return { role: "Phlebo", name: order.cancelledByName || "—" };
+  }
+  if (order?.cancelledBy === "admin") {
+    return { role: "Admin", name: order.cancelledByName || "—" };
+  }
+  const note = order?.cancelReason || order?.rejectedReason || "";
+  if (/Permanently cancelled by/i.test(note)) {
+    const m = note.match(/Permanently cancelled by ([^:]+):/i);
+    return { role: "Admin", name: m?.[1]?.trim() || "—" };
+  }
+  if (/Customer (asked to reschedule|refused visit)|Consent declined/i.test(note)) {
+    const m = note.match(/\(by ([^)]+)\)/i);
+    return { role: "Phlebo", name: m?.[1]?.trim() || order?.assignedPhleboName || "—" };
+  }
+  return { role: "—", name: "—" };
+}
+
+function orderStatusLabel(order) {
+  return order?.status || "Booked";
+}
+
 export default function Orders() {
   const { user } = useAuth();
   // Sirf city Admin operational edits (create/assign) kar sakta hai. Superadmin
@@ -459,6 +482,7 @@ export default function Orders() {
                   <th className="text-left px-4 py-3 font-medium">Patient</th>
                   <th className="text-left px-4 py-3 font-medium">Website</th>
                   <th className="text-left px-4 py-3 font-medium">Slot</th>
+                  <th className="text-left px-4 py-3 font-medium">Status</th>
                   <th className="text-left px-4 py-3 font-medium">Phlebo status</th>
                   <th className="text-left px-4 py-3 font-medium">Payment</th>
                   <th className="text-left px-4 py-3 font-medium">Assigned to</th>
@@ -468,18 +492,22 @@ export default function Orders() {
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
                       Loading orders…
                     </td>
                   </tr>
                 ) : orders.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
                       No orders match these filters
                     </td>
                   </tr>
                 ) : (
-                  orders.map((o) => (
+                  orders.map((o) => {
+                    const statusLabel = orderStatusLabel(o);
+                    const cancelledBy =
+                      statusLabel === "Cancelled" ? resolveCancelledBy(o) : null;
+                    return (
                     <tr key={o._id} className="hover:bg-slate-50">
                       <td className="px-4 py-3">
                         <div className="font-medium text-slate-800">{o.patientName}</div>
@@ -507,9 +535,24 @@ export default function Orders() {
                         {o.slotDate} · {o.slotTime}
                       </td>
                       <td className="px-4 py-3">
-                        <Badge>
-                          {o.status === "Cancelled" ? "Cancelled" : o.phleboStatus || "Unassigned"}
-                        </Badge>
+                        {statusLabel === "Cancelled" && cancelledBy ? (
+                          <button
+                            type="button"
+                            className="text-left rounded-lg hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-rose-200"
+                            title={`Cancelled by ${cancelledBy.role}${cancelledBy.name !== "—" ? ` (${cancelledBy.name})` : ""} — click for details`}
+                            onClick={() => setDetailFor(o)}
+                          >
+                            <Badge>Cancelled</Badge>
+                            <div className="text-[10px] text-rose-600 mt-0.5 font-medium">
+                              by {cancelledBy.role}
+                            </div>
+                          </button>
+                        ) : (
+                          <Badge>{statusLabel}</Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge>{o.phleboStatus || "Unassigned"}</Badge>
                       </td>
                       <td className="px-4 py-3">
                         <Badge>{o.paymentStatus}</Badge>
@@ -564,7 +607,8 @@ export default function Orders() {
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -809,10 +853,8 @@ export default function Orders() {
             </div>
             <Field label="Address" value={`${detailFor.address}, ${detailFor.area || ""} ${detailFor.city || ""} ${detailFor.pincode || ""}`} />
             <div className="flex flex-wrap gap-2">
-              <Badge>{detailFor.status}</Badge>
-              {detailFor.status !== "Cancelled" ? (
-                <Badge>{detailFor.phleboStatus || "Unassigned"}</Badge>
-              ) : null}
+              <Badge>{detailFor.status || "Booked"}</Badge>
+              <Badge>{detailFor.phleboStatus || "Unassigned"}</Badge>
               {detailFor.walkInSourceJobId && (
                 <span className="inline-flex items-center rounded-full bg-violet-100 text-violet-700 px-3 py-1 text-xs font-semibold">
                   Walk-in (added by phlebo on-site)
@@ -830,6 +872,30 @@ export default function Orders() {
                 </span>
               ) : null}
             </div>
+
+            {detailFor.status === "Cancelled" ? (
+              <div className="rounded-lg bg-rose-50 text-rose-800 text-xs px-3 py-3 space-y-1.5">
+                <div>
+                  <span className="font-semibold">Cancelled by: </span>
+                  {resolveCancelledBy(detailFor).role}
+                  {resolveCancelledBy(detailFor).name !== "—"
+                    ? ` (${resolveCancelledBy(detailFor).name})`
+                    : ""}
+                </div>
+                {detailFor.cancelReason || detailFor.rejectedReason ? (
+                  <div>
+                    <span className="font-semibold">Reason: </span>
+                    {detailFor.cancelReason || detailFor.rejectedReason}
+                  </div>
+                ) : null}
+                {detailFor.cancelledAt ? (
+                  <div>
+                    <span className="font-semibold">When: </span>
+                    {new Date(detailFor.cancelledAt).toLocaleString()}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {detailFor.rescheduleRequested ? (
               <div className="rounded-lg bg-rose-50 text-rose-700 text-xs px-3 py-2">

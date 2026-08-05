@@ -111,6 +111,11 @@ const jobSchema = new mongoose.Schema(
       index: true,
     },
     rejectedReason: { type: String, default: "", trim: true },
+    /** Who set status=Cancelled — phlebo (Cancel Job) vs admin (master cancel). */
+    cancelledBy: { type: String, enum: ["", "phlebo", "admin"], default: "", trim: true },
+    cancelledByName: { type: String, default: "", trim: true },
+    cancelledAt: { type: Date, default: null },
+    cancelReason: { type: String, default: "", trim: true },
     acceptedAt: { type: Date, default: null },
     /** "I'm on the way" ke waqt phlebo ka position — arrival ke against travel-km
      *  nikalne ke liye (see PhleboRoute.js /jobs/:id/arrival). */
