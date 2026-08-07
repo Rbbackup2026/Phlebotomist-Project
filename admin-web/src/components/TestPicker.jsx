@@ -57,14 +57,14 @@ export default function TestPicker({ clientId, city, onAdd, disabled }) {
     <div className="space-y-2">
       <input
         className="input"
-        placeholder={clientId ? "Search tests…" : "Select a website first"}
+        placeholder={clientId ? "Search tests…" : "Select a source first"}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         disabled={disabled || !clientId}
       />
       <div className="max-h-40 overflow-y-auto space-y-1 border border-slate-100 rounded-lg p-1">
         {!clientId ? (
-          <p className="text-xs text-slate-400 p-2">Select a website first</p>
+          <p className="text-xs text-slate-400 p-2">Select a source first</p>
         ) : loading ? (
           <p className="text-xs text-slate-400 p-2">Loading…</p>
         ) : catalogError ? (

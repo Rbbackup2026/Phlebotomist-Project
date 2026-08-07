@@ -3,6 +3,7 @@ import Topbar from "../components/Topbar.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
 import { adminApi } from "../api.js";
+import { visibleClients } from "../utils/clients.js";
 
 const emptyForm = {
   name: "",
@@ -442,14 +443,14 @@ export default function Phlebos() {
               onChange={(e) => setAddForm({ ...addForm, servesAllClients: e.target.checked })}
               className="rounded border-slate-300 text-brand-500 focus:ring-brand-400"
             />
-            Serves all partner websites
+            Serves all sources
           </label>
 
           {!addForm.servesAllClients ? (
             <div>
-              <div className="label mb-1.5">Allowed websites</div>
+              <div className="label mb-1.5">Allowed sources</div>
               <div className="flex flex-wrap gap-2">
-                {clients.map((c) => (
+                {visibleClients(clients).map((c) => (
                   <button
                     type="button"
                     key={c._id}
@@ -773,14 +774,14 @@ export default function Phlebos() {
                 onChange={(e) => setEditForm({ ...editForm, servesAllClients: e.target.checked })}
                 className="rounded border-slate-300 text-brand-500 focus:ring-brand-400"
               />
-              Serves all partner websites
+              Serves all sources
             </label>
 
             {!editForm.servesAllClients ? (
               <div>
-                <div className="label mb-1.5">Allowed websites</div>
+                <div className="label mb-1.5">Allowed sources</div>
                 <div className="flex flex-wrap gap-2">
-                  {clients.map((c) => (
+                  {visibleClients(clients).map((c) => (
                     <button
                       type="button"
                       key={c._id}

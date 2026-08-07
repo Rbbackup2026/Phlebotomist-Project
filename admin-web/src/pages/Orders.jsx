@@ -8,6 +8,7 @@ import TestPicker from "../components/TestPicker.jsx";
 import { useDateRange } from "../hooks/useDateRange.js";
 import { adminApi, authApi, mediaUrl } from "../api.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { visibleClients, displaySource } from "../utils/clients.js";
 
 /** Normalize free-form slotDate → YYYY-MM-DD for Collections deep links. */
 function toYmd(raw) {
@@ -326,7 +327,7 @@ export default function Orders() {
   async function submitNewOrder(e) {
     e.preventDefault();
     setNewOrderError("");
-    if (!newOrder.clientId) return setNewOrderError("Please select a website");
+    if (!newOrder.clientId) return setNewOrderError("Please select a source");
     if (!newOrder.patientName || !newOrder.address || !newOrder.slotDate || !newOrder.slotTime) {
       return setNewOrderError("Patient name, address, and slot date/time are required");
     }
@@ -378,7 +379,7 @@ export default function Orders() {
 
   return (
     <>
-      <Topbar title="Orders" subtitle="All bookings across partner websites" />
+      <Topbar title="Orders" subtitle="All bookings across sources" />
       <div className="p-4 md:p-8 space-y-4">
         {canManage ? (
           <div className="flex justify-end">
@@ -453,14 +454,14 @@ export default function Orders() {
             </select>
           </div>
           <div>
-            <label className="label">Website</label>
+            <label className="label">Source</label>
             <select
               className="input w-44"
               value={clientSlug}
               onChange={(e) => setClientSlug(e.target.value)}
             >
-              <option value="">All websites</option>
-              {clients.map((c) => (
+              <option value="">All sources</option>
+              {visibleClients(clients).map((c) => (
                 <option key={c._id} value={c.slug}>
                   {c.name}
                 </option>
@@ -480,7 +481,7 @@ export default function Orders() {
               <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
                 <tr>
                   <th className="text-left px-4 py-3 font-medium">Patient</th>
-                  <th className="text-left px-4 py-3 font-medium">Website</th>
+                  <th className="text-left px-4 py-3 font-medium">Source</th>
                   <th className="text-left px-4 py-3 font-medium">Slot</th>
                   <th className="text-left px-4 py-3 font-medium">Status</th>
                   <th className="text-left px-4 py-3 font-medium">Phlebo status</th>
@@ -530,7 +531,7 @@ export default function Orders() {
                           </span>
                         ) : null}
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{o.clientName || o.clientSlug}</td>
+                      <td className="px-4 py-3 text-slate-600">{displaySource(o)}</td>
                       <td className="px-4 py-3 text-slate-600">
                         {o.slotDate} · {o.slotTime}
                       </td>
@@ -655,7 +656,7 @@ export default function Orders() {
           <div className="space-y-3">
             <p className="text-sm text-slate-500">
               Order for <span className="font-medium text-slate-700">{assignFor.patientName}</span> ·{" "}
-              {assignFor.clientName || assignFor.clientSlug}
+              {displaySource(assignFor)}
             </p>
             <Link
               to={collectionsHref(assignFor.slotDate, { focusUnassigned: !assignFor.assignedPhlebo })}
@@ -673,7 +674,7 @@ export default function Orders() {
             <div className="max-h-72 overflow-y-auto space-y-1.5">
               {eligiblePhlebos.length === 0 ? (
                 <p className="text-sm text-slate-400 py-4 text-center">
-                  No phlebotomist is eligible for this website
+                  No phlebotomist is eligible for this source
                 </p>
               ) : (
                 eligiblePhlebos.map((p) => (
@@ -846,7 +847,7 @@ export default function Orders() {
               <Field label="Pickup ID" value={detailFor.pickupId} />
               <Field label="Patient" value={detailFor.patientName} />
               <Field label="Mobile" value={detailFor.mobileNumber} />
-              <Field label="Website" value={detailFor.clientName || detailFor.clientSlug} />
+              <Field label="Source" value={displaySource(detailFor)} />
               <Field label="External order ID" value={detailFor.externalOrderId} />
               <Field label="Slot" value={`${detailFor.slotDate} · ${detailFor.slotTime}`} />
               <Field label="Amount" value={`₹${detailFor.totalAmount ?? detailFor.amount ?? 0}`} />
@@ -1083,15 +1084,15 @@ export default function Orders() {
           ) : null}
 
           <div>
-            <label className="label">Website</label>
+            <label className="label">Source</label>
             <select
               required
               className="input"
               value={newOrder.clientId}
               onChange={(e) => setNewOrder({ ...newOrder, clientId: e.target.value })}
             >
-              <option value="">Select website…</option>
-              {clients.map((c) => (
+              <option value="">Select source…</option>
+              {visibleClients(clients).map((c) => (
                 <option key={c._id} value={c._id}>
                   {c.name}
                 </option>

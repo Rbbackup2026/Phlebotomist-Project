@@ -6,6 +6,7 @@ import Modal from "../components/Modal.jsx";
 import TestPicker from "../components/TestPicker.jsx";
 import { useDateRange } from "../hooks/useDateRange.js";
 import { adminApi } from "../api.js";
+import { visibleClients, displaySource } from "../utils/clients.js";
 
 function fmtDate(d) {
   if (!d) return "—";
@@ -141,10 +142,10 @@ export default function AddedTests() {
 
         <div className="card p-4 flex flex-wrap gap-3 items-end">
           <div>
-            <label className="label">Website</label>
+            <label className="label">Source</label>
             <select className="input w-44" value={clientSlug} onChange={(e) => setClientSlug(e.target.value)}>
-              <option value="">All websites</option>
-              {clients.map((c) => (
+              <option value="">All sources</option>
+              {visibleClients(clients).map((c) => (
                 <option key={c._id} value={c.slug}>
                   {c.name}
                 </option>
@@ -175,7 +176,7 @@ export default function AddedTests() {
               <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
                 <tr>
                   <th className="text-left px-4 py-3 font-medium">Patient</th>
-                  <th className="text-left px-4 py-3 font-medium">Website</th>
+                  <th className="text-left px-4 py-3 font-medium">Source</th>
                   <th className="text-left px-4 py-3 font-medium">Test added</th>
                   <th className="text-left px-4 py-3 font-medium">Price</th>
                   <th className="text-left px-4 py-3 font-medium">Added by</th>
@@ -204,7 +205,7 @@ export default function AddedTests() {
                           #{String(r.orderId).slice(-6)}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{r.clientName || r.clientSlug}</td>
+                      <td className="px-4 py-3 text-slate-600">{displaySource(r)}</td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-slate-800">{r.testName}</div>
                         <div className="text-xs text-slate-400">{r.category}</div>
@@ -236,7 +237,7 @@ export default function AddedTests() {
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add test manually" width="max-w-lg">
         <div className="space-y-4">
           <div>
-            <label className="label">Website</label>
+            <label className="label">Source</label>
             <select
               className="input"
               value={pickClientId}
@@ -245,8 +246,8 @@ export default function AddedTests() {
                 setPickOrderId("");
               }}
             >
-              <option value="">Select website…</option>
-              {clients.map((c) => (
+              <option value="">Select source…</option>
+              {visibleClients(clients).map((c) => (
                 <option key={c._id} value={c._id}>
                   {c.name}
                 </option>

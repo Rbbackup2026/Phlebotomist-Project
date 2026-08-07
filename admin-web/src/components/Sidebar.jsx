@@ -13,12 +13,15 @@ const baseItems = [
   { to: "/attendance", label: "Attendance", icon: "🕘" },
   { to: "/collections", label: "Collections", icon: "📅" },
   { to: "/lab-tat", label: "Lab TAT", icon: "⏱️" },
-  { to: "/clients", label: "Clients", icon: "🌐" },
+  // Clients (partner websites) nav temporarily hidden — Wello not shown in UI.
+  // Restore: add `{ to: "/clients", label: "Clients", icon: "🌐" }` back here.
 ];
 
 // Superadmin manages city Admins; Admin manages their city's Labs. Lab role
 // (single city, single lab) doesn't get this section at all.
 const teamItem = { to: "/team", label: "Team", icon: "👥" };
+// City Admin raises support tickets; Superadmin sees the inbox + replies.
+const ticketsItem = { to: "/tickets", label: "Support", icon: "🎫" };
 
 export default function Sidebar() {
   const { user } = useAuth();
@@ -35,9 +38,9 @@ export default function Sidebar() {
   // Kits/Phlebos/Clients sab city-Admin ka operational territory hai.
   const items =
     role === "superadmin"
-      ? [baseItems[0], teamItem]
+      ? [baseItems[0], teamItem, ticketsItem]
       : role === "admin"
-      ? [...baseItems, teamItem]
+      ? [...baseItems, teamItem, ticketsItem]
       : role === "lab"
       ? [baseItems[0], baseItems[1]]
       : baseItems;

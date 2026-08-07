@@ -8,6 +8,7 @@ import Modal from "../components/Modal.jsx";
 import { useDateRange } from "../hooks/useDateRange.js";
 import { adminApi, authApi } from "../api.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { visibleClients, isHiddenClient } from "../utils/clients.js";
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -80,7 +81,9 @@ function LabDashboard() {
                     >
                       <div>
                         <div className="text-sm font-medium text-slate-800">{o.patientName}</div>
-                        <div className="text-xs text-slate-400">{o.slotDate} · {o.slotTime}</div>
+                        <div className="text-xs text-slate-400">
+                          {o.slotDate} · {o.slotTime}
+                        </div>
                       </div>
                       <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
                         {o.phleboStatus || "Unassigned"}
@@ -109,16 +112,10 @@ function SuperadminOverview() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  // Stat card click karne se cities table usi metric se sort ho jaata hai, aur
-  // table pe brief highlight flash hota hai — taaki click ka koi visible asar
-  // dikhe (sirf scroll-into-view kaafi nahi tha jab table already screen pe ho).
   const [sortKey, setSortKey] = useState(null);
   const [flash, setFlash] = useState(false);
 
-  // Orders/Phlebotomists/Labs cards ek read-only drill-down modal kholte hain
-  // (superadmin ke paas edit karne ka koi button nahi — sirf list dekh sakta hai).
-  // Data lazily fetch hota hai jab pehli baar us card pe click ho.
-  const [detailView, setDetailView] = useState(null); // "orders" | "phlebos" | "labs" | null
+  const [detailView, setDetailView] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
   const [detailSearch, setDetailSearch] = useState("");
@@ -197,7 +194,6 @@ function SuperadminOverview() {
     <>
       <Topbar title="All Cities" subtitle="Read-only overview — city Admins manage their own data" />
       <div className="p-4 md:p-8 space-y-6">
-        {/* Hero banner — halka lavender + raised 3D shadow, dark card nahi */}
         <div
           className="rounded-2xl bg-gradient-to-r from-violet-100 via-violet-50 to-white border border-violet-100 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
           style={{ boxShadow: "0 2px 4px rgba(109,40,217,0.05), 0 12px 28px -10px rgba(109,40,217,0.20)" }}
@@ -206,7 +202,7 @@ function SuperadminOverview() {
             <div className="text-violet-500 text-xs font-medium uppercase tracking-wide">Superadmin</div>
             <h2 className="text-slate-900 text-xl font-semibold mt-1">Platform-wide overview</h2>
             <p className="text-slate-500 text-sm mt-1">
-              Each city's Admin manages its data — view-only here
+              Each city&apos;s Admin manages its data — view-only here
             </p>
           </div>
           <button
@@ -283,7 +279,10 @@ function SuperadminOverview() {
                       <tr>
                         <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
                           No city admin yet —{" "}
-                          <button onClick={() => navigate("/team")} className="text-violet-600 font-medium hover:underline">
+                          <button
+                            onClick={() => navigate("/team")}
+                            className="text-violet-600 font-medium hover:underline"
+                          >
                             Create one on the Team page
                           </button>
                         </td>
@@ -294,7 +293,7 @@ function SuperadminOverview() {
                           <td className="px-4 py-3 font-medium text-slate-800">{c.city}</td>
                           <td className="px-4 py-3 text-slate-600">
                             <div className="flex items-center gap-2.5">
-                              <div className="h-7 w-7 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center text-xs font-semibold shrink-0">
+                              <div className="h-7 w-7 rounded-full bg-violet-100 text-violet-700 text-xs font-semibold flex items-center justify-center shrink-0">
                                 {(c.adminName || "?").charAt(0).toUpperCase()}
                               </div>
                               <div>
@@ -307,7 +306,7 @@ function SuperadminOverview() {
                             {c.completedOrders}/{c.totalOrders} done
                           </td>
                           <td className="px-4 py-3 text-slate-600">
-                            {c.activePhlebos}/{c.totalPhlebos} active
+                            {c.activePhlebos}/{c.totalPhlebos}
                           </td>
                           <td className="px-4 py-3 text-slate-600">{c.totalLabs}</td>
                           <td className="px-4 py-3 text-slate-600">₹{c.cashPending || 0}</td>
@@ -325,8 +324,6 @@ function SuperadminOverview() {
         ) : null}
       </div>
 
-      {/* Read-only drill-down — superadmin sirf list dekh sakta hai, koi Edit/Assign
-          button yahan nahi hai. Actual editing us city ke Admin/Lab se hoti hai. */}
       <Modal
         open={!!detailView}
         onClose={() => setDetailView(null)}
@@ -376,7 +373,7 @@ function SuperadminOverview() {
               )}
               {ordersList && ordersList.length >= 200 ? (
                 <p className="text-xs text-slate-400 text-center pt-1">
-                  Showing first 200 only — view the full list via that city's Admin
+                  Showing first 200 only — view the full list via that city&apos;s Admin
                 </p>
               ) : null}
             </div>
@@ -453,7 +450,8 @@ function CityDashboard() {
   }, [range]);
 
   const byClient = data?.jobsByClient || {};
-  const maxClientJobs = Math.max(1, ...Object.values(byClient));
+  const visibleByClient = Object.entries(byClient).filter(([slug]) => !isHiddenClient(slug));
+  const maxClientJobs = Math.max(1, ...visibleByClient.map(([, count]) => count), 1);
 
   const goOrders = (params = {}) => {
     const qs = new URLSearchParams(params).toString();
@@ -462,7 +460,7 @@ function CityDashboard() {
 
   return (
     <>
-      <Topbar title="Dashboard" subtitle="Live overview across all partner websites" />
+      <Topbar title="Dashboard" subtitle="Live overview across all sources" />
       <div className="p-4 md:p-8 space-y-6">
         <DateRangeBar preset={preset} range={range} onPreset={applyPreset} onCustom={setCustom} />
 
@@ -472,11 +470,7 @@ function CityDashboard() {
         ) : data ? (
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard
-                label="Total Orders"
-                value={data.totalOrders}
-                onClick={() => goOrders()}
-              />
+              <StatCard label="Total Orders" value={data.totalOrders} onClick={() => goOrders()} />
               <StatCard
                 label="Completed"
                 value={data.completedOrders}
@@ -505,9 +499,9 @@ function CityDashboard() {
                 onClick={() => navigate("/phlebos")}
               />
               <StatCard
-                label="Partner Websites (Clients)"
-                value={data.totalClients}
-                onClick={() => navigate("/clients")}
+                label="Sources"
+                value={visibleClients(data.clients || []).length}
+                onClick={() => goOrders()}
               />
               <StatCard
                 label="Cash awaiting settlement"
@@ -520,12 +514,12 @@ function CityDashboard() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="card p-5">
-                <h3 className="text-sm font-semibold text-slate-700 mb-4">Orders by Website</h3>
+                <h3 className="text-sm font-semibold text-slate-700 mb-4">Orders by Source</h3>
                 <div className="space-y-3">
-                  {Object.entries(byClient).length === 0 ? (
+                  {visibleByClient.length === 0 ? (
                     <p className="text-sm text-slate-400">No orders yet</p>
                   ) : (
-                    Object.entries(byClient).map(([slug, count]) => (
+                    visibleByClient.map(([slug, count]) => (
                       <button
                         key={slug}
                         onClick={() => goOrders({ clientSlug: slug })}
@@ -550,12 +544,12 @@ function CityDashboard() {
               </div>
 
               <div className="card p-5">
-                <h3 className="text-sm font-semibold text-slate-700 mb-4">Partner Websites</h3>
+                <h3 className="text-sm font-semibold text-slate-700 mb-4">Sources</h3>
                 <div className="space-y-2">
-                  {(data.clients || []).length === 0 ? (
-                    <p className="text-sm text-slate-400">No partner websites yet</p>
+                  {visibleClients(data.clients || []).length === 0 ? (
+                    <p className="text-sm text-slate-400">No sources yet</p>
                   ) : (
-                    (data.clients || []).map((c) => (
+                    visibleClients(data.clients || []).map((c) => (
                       <button
                         key={c._id}
                         onClick={() => goOrders({ clientSlug: c.slug })}

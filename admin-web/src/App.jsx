@@ -12,10 +12,10 @@ import Kits from "./pages/Kits.jsx";
 import Phlebos from "./pages/Phlebos.jsx";
 import Attendance from "./pages/Attendance.jsx";
 import Collections from "./pages/Collections.jsx";
-import Clients from "./pages/Clients.jsx";
 import Team from "./pages/Team.jsx";
 import LiveMap from "./pages/LiveMap.jsx";
 import LabTat from "./pages/LabTat.jsx";
+import Tickets from "./pages/Tickets.jsx";
 
 function ProtectedLayout({ children, roles }) {
   const { isAuthed, user } = useAuth();
@@ -123,7 +123,7 @@ export default function App() {
         path="/clients"
         element={
           <ProtectedLayout>
-            <Clients />
+            <Navigate to="/" replace />
           </ProtectedLayout>
         }
       />
@@ -132,6 +132,14 @@ export default function App() {
         element={
           <ProtectedLayout roles={["superadmin", "admin"]}>
             <Team />
+          </ProtectedLayout>
+        }
+      />
+      <Route
+        path="/tickets"
+        element={
+          <ProtectedLayout roles={["superadmin", "admin"]}>
+            <Tickets />
           </ProtectedLayout>
         }
       />

@@ -105,6 +105,7 @@ app.get("/health", (_req, res) => {
 app.use("/v1/api", require("./Route/AuthRoute"));
 app.use("/v1/api", require("./Route/PartnerRoute"));
 app.use("/v1/api", require("./Route/PhleboRoute"));
+app.use("/v1/api", require("./Route/TicketRoute"));
 // Patient-facing tracking/rating/reschedule-request — no auth, keyed by trackingToken.
 app.use("/v1/api/public", require("./Route/PublicRoute"));
 

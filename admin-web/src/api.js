@@ -171,4 +171,14 @@ export const adminApi = {
     request(`/admin/phlebos/${phleboId}/leave`, { method: "POST", body: payload }),
   phleboLeaves: (phleboId) => request(`/admin/phlebos/${phleboId}/leave`),
   cancelLeave: (leaveId) => request(`/admin/leave/${leaveId}`, { method: "DELETE" }),
+  tickets: (params = {}) => {
+    const q = qs(params);
+    return request(`/admin/tickets${q ? `?${q}` : ""}`);
+  },
+  ticket: (id) => request(`/admin/tickets/${id}`),
+  createTicket: (payload) => request("/admin/tickets", { method: "POST", body: payload }),
+  replyTicket: (id, text) =>
+    request(`/admin/tickets/${id}/messages`, { method: "POST", body: { text } }),
+  setTicketStatus: (id, status) =>
+    request(`/admin/tickets/${id}/status`, { method: "PATCH", body: { status } }),
 };

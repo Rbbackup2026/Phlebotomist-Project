@@ -5,6 +5,7 @@ import StatCard from "../components/StatCard.jsx";
 import DateRangeBar from "../components/DateRangeBar.jsx";
 import { useDateRange } from "../hooks/useDateRange.js";
 import { adminApi } from "../api.js";
+import { displaySource } from "../utils/clients.js";
 
 const STATUS_OPTIONS = ["All", "Paid", "Unpaid"];
 const SETTLEMENT_OPTIONS = ["All", "Pending settlement", "Settled"];
@@ -180,7 +181,7 @@ export default function Payments() {
               <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
                 <tr>
                   <th className="text-left px-4 py-3 font-medium">Patient</th>
-                  <th className="text-left px-4 py-3 font-medium">Website</th>
+                  <th className="text-left px-4 py-3 font-medium">Source</th>
                   <th className="text-left px-4 py-3 font-medium">Amount</th>
                   <th className="text-left px-4 py-3 font-medium">Method</th>
                   <th className="text-left px-4 py-3 font-medium">Status</th>
@@ -213,7 +214,7 @@ export default function Payments() {
                           <div className="font-medium text-slate-800">{o.patientName}</div>
                           <div className="text-xs text-slate-400">{o.mobileNumber}</div>
                         </td>
-                        <td className="px-4 py-3 text-slate-600">{o.clientName || o.clientSlug}</td>
+                        <td className="px-4 py-3 text-slate-600">{displaySource(o)}</td>
                         <td className="px-4 py-3 font-medium text-slate-800">
                           ₹{o.totalAmount ?? o.amount ?? 0}
                         </td>
