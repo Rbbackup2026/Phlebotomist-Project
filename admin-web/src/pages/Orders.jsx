@@ -8,7 +8,7 @@ import TestPicker from "../components/TestPicker.jsx";
 import { useDateRange } from "../hooks/useDateRange.js";
 import { adminApi, authApi, mediaUrl } from "../api.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import { visibleClients, displaySource } from "../utils/clients.js";
+import { visibleClients, displaySource, sourceOptionsForBooking } from "../utils/clients.js";
 
 /** Normalize free-form slotDate → YYYY-MM-DD for Collections deep links. */
 function toYmd(raw) {
@@ -297,7 +297,12 @@ export default function Orders() {
   }
 
   function openNewOrder() {
-    setNewOrder(emptyNewOrder);
+    const sources = sourceOptionsForBooking(clients);
+    setNewOrder({
+      ...emptyNewOrder,
+      city: user?.city || "",
+      clientId: sources.length === 1 ? sources[0]._id : "",
+    });
     setNewOrderItems([]);
     setNewOrderError("");
     setShowNewOrder(true);
@@ -1092,12 +1097,17 @@ export default function Orders() {
               onChange={(e) => setNewOrder({ ...newOrder, clientId: e.target.value })}
             >
               <option value="">Select source…</option>
-              {visibleClients(clients).map((c) => (
+              {sourceOptionsForBooking(clients).map((c) => (
                 <option key={c._id} value={c._id}>
-                  {c.name}
+                  {c.label}
                 </option>
               ))}
             </select>
+            {sourceOptionsForBooking(clients).length === 0 ? (
+              <p className="text-xs text-rose-600 mt-1">
+                No source available — add a partner client first, or check seed.
+              </p>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-2 gap-3">

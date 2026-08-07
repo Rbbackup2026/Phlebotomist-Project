@@ -4,6 +4,9 @@
  */
 export const HIDE_WELLO_CLIENT = true;
 
+/** Label shown instead of "Wello" for walk-in / internal bookings. */
+export const DIRECT_SOURCE_LABEL = "Direct / Walk-in";
+
 const WELLO_SLUG = (import.meta.env.VITE_WELLO_CLIENT_SLUG || "wello").toLowerCase();
 
 export function isHiddenClient(clientOrSlug) {
@@ -23,11 +26,40 @@ export function visibleClients(list = []) {
   return (list || []).filter((c) => !isHiddenClient(c));
 }
 
-/** Source column / labels — Wello shows as em dash while hidden. */
+/**
+ * Sources for New Order picker.
+ * Agar koi visible partner nahi (sirf Wello hide hai) to Wello ko
+ * "Direct / Walk-in" label se dikhao — order create chal sake, naam na dikhe.
+ */
+export function sourceOptionsForBooking(list = []) {
+  const visible = visibleClients(list).map((c) => ({
+    _id: c._id,
+    slug: c.slug,
+    name: c.name,
+    label: c.name,
+  }));
+  if (visible.length > 0) return visible;
+
+  return (list || [])
+    .filter((c) => isHiddenClient(c))
+    .map((c) => ({
+      _id: c._id,
+      slug: c.slug,
+      name: c.name,
+      label: DIRECT_SOURCE_LABEL,
+    }));
+}
+
+/** Source column / labels — Wello → Direct / Walk-in (jab hide on ho). */
 export function displaySource(orderOrClient) {
   if (!orderOrClient) return "—";
-  if (isHiddenClient(orderOrClient)) return "—";
-  if (isHiddenClient(orderOrClient.clientSlug) || isHiddenClient(orderOrClient.slug)) return "—";
+  if (
+    isHiddenClient(orderOrClient) ||
+    isHiddenClient(orderOrClient.clientSlug) ||
+    isHiddenClient(orderOrClient.slug)
+  ) {
+    return DIRECT_SOURCE_LABEL;
+  }
   return (
     orderOrClient.clientName ||
     orderOrClient.name ||

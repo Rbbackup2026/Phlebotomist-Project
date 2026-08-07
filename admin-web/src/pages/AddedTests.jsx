@@ -6,7 +6,7 @@ import Modal from "../components/Modal.jsx";
 import TestPicker from "../components/TestPicker.jsx";
 import { useDateRange } from "../hooks/useDateRange.js";
 import { adminApi } from "../api.js";
-import { visibleClients, displaySource } from "../utils/clients.js";
+import { visibleClients, displaySource, sourceOptionsForBooking } from "../utils/clients.js";
 
 function fmtDate(d) {
   if (!d) return "—";
@@ -247,9 +247,9 @@ export default function AddedTests() {
               }}
             >
               <option value="">Select source…</option>
-              {visibleClients(clients).map((c) => (
+              {sourceOptionsForBooking(clients).map((c) => (
                 <option key={c._id} value={c._id}>
-                  {c.name}
+                  {c.label}
                 </option>
               ))}
             </select>
