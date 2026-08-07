@@ -362,6 +362,25 @@ export default function Orders() {
     }
   }
 
+  async function removeTestFromDetail(item) {
+    if (!detailFor || !item?.productId || !item.addedByPhlebo) return;
+    if (detailFor.phleboStatus === "Handed Off" || detailFor.status === "Cancelled") {
+      alert("Cancelled / handed-off order se extra test nahi hata sakte");
+      return;
+    }
+    if (!window.confirm(`Remove “${item.name}” from this order?`)) return;
+    setAddTestSaving(true);
+    try {
+      const res = await adminApi.removeTestFromOrder(detailFor._id, item.productId);
+      setDetailFor(res.job);
+      load();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setAddTestSaving(false);
+    }
+  }
+
   const [rejectSaving, setRejectSaving] = useState(false);
   async function rejectSample(barcode) {
     if (!detailFor) return;
@@ -932,21 +951,36 @@ export default function Orders() {
               <div className="label mb-1.5">Tests</div>
               {(detailFor.items || []).length > 0 ? (
                 <div className="space-y-1 mb-2">
-                  {detailFor.items.map((it, i) => (
+                  {(detailFor.items || []).map((it, i) => (
                     <div
-                      key={i}
-                      className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs"
+                      key={it.productId || i}
+                      className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs"
                     >
-                      <span className="flex items-center gap-2">
-                        {it.name}
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span className="truncate">{it.name}</span>
                         {it.addedByPhlebo ? (
-                          <span className="rounded-full bg-violet-50 text-violet-700 px-2 py-0.5 text-[10px] font-medium">
+                          <span className="shrink-0 rounded-full bg-violet-50 text-violet-700 px-2 py-0.5 text-[10px] font-medium">
                             {it.addedBySource === "admin" ? "Added by Ops" : "Added on-site"}
                           </span>
                         ) : null}
                       </span>
-                      <span className="text-slate-500">
-                        ₹{it.price} x{it.quantity || 1}
+                      <span className="flex items-center gap-2 shrink-0">
+                        <span className="text-slate-500">
+                          ₹{it.price} x{it.quantity || 1}
+                        </span>
+                        {it.addedByPhlebo &&
+                        it.productId &&
+                        detailFor.phleboStatus !== "Handed Off" &&
+                        detailFor.status !== "Cancelled" ? (
+                          <button
+                            type="button"
+                            className="text-rose-600 hover:text-rose-700 font-medium disabled:opacity-50"
+                            disabled={addTestSaving}
+                            onClick={() => removeTestFromDetail(it)}
+                          >
+                            Remove
+                          </button>
+                        ) : null}
                       </span>
                     </div>
                   ))}

@@ -106,6 +106,10 @@ export const adminApi = {
   },
   addTestToOrder: (orderId, payload) =>
     request(`/admin/orders/${orderId}/tests`, { method: "POST", body: payload }),
+  removeTestFromOrder: (orderId, productId) =>
+    request(`/admin/orders/${orderId}/tests/${encodeURIComponent(productId)}`, {
+      method: "DELETE",
+    }),
   rescheduleOrder: (orderId, payload) =>
     request(`/admin/orders/${orderId}/reschedule`, { method: "PUT", body: payload }),
   cancelOrder: (orderId, reason) =>

@@ -665,6 +665,63 @@ router.post("/admin/orders/:id/tests", verifyToken, requireRole("admin"), async 
   }
 });
 
+/**
+ * Admin: galti se add hua extra test hatao.
+ * Sirf items with addedByPhlebo=true (Ops / on-site extras) — original booking lock.
+ */
+router.delete(
+  "/admin/orders/:id/tests/:productId",
+  verifyToken,
+  requireRole("admin"),
+  async (req, res) => {
+    try {
+      const order = await Job.findById(req.params.id);
+      if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+      if (req.user.role === "admin" && order.city !== req.user.city) {
+        return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
+      }
+      if (order.status === "Cancelled" || order.phleboStatus === "Handed Off") {
+        return res.status(400).json({
+          success: false,
+          message: "Cancelled / handed-off order se extra test nahi hata sakte",
+        });
+      }
+
+      const productId = String(req.params.productId || "").trim();
+      if (!productId) {
+        return res.status(400).json({ success: false, message: "productId required" });
+      }
+
+      const idx = (order.items || []).findIndex(
+        (i) => String(i.productId) === productId && i.addedByPhlebo
+      );
+      if (idx < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Sirf extra (added) tests remove ho sakte hain — original booking lock hai",
+        });
+      }
+
+      const removed = order.items[idx];
+      order.items.splice(idx, 1);
+      order.markModified("items");
+      recalcJobTotals(order);
+
+      const note = `Test removed by Ops: ${removed.name || productId}`;
+      order.adminNote = order.adminNote ? `${order.adminNote} | ${note}` : note;
+
+      await saveAndNotify(order);
+      res.json({
+        success: true,
+        message: `${removed.name || "Test"} remove ho gaya`,
+        job: order,
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+);
+
 router.get("/admin/clients", verifyToken, async (_req, res) => {
   try {
     const clients = await Client.find().sort({ name: 1 }).select("-webhookSecret");
@@ -711,6 +768,7 @@ router.get("/admin/added-tests", verifyToken, attachScope, async (req, res) => {
           phleboName: job.assignedPhleboName,
           phleboId: job.assignedPhlebo,
           phleboStatus: job.phleboStatus,
+          productId: item.productId,
           testName: item.name,
           category: item.category,
           price: item.price,

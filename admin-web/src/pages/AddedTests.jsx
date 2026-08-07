@@ -120,6 +120,33 @@ export default function AddedTests() {
     }
   }
 
+  const [removingKey, setRemovingKey] = useState("");
+
+  async function removeAddedTest(row) {
+    if (!row?.orderId || !row?.productId) {
+      alert("Is test ko remove nahi kar sakte — product id missing");
+      return;
+    }
+    if (row.phleboStatus === "Handed Off") {
+      alert("Handed-off order se extra test nahi hata sakte");
+      return;
+    }
+    const ok = window.confirm(
+      `Remove “${row.testName}” from ${row.patientName}'s order?`
+    );
+    if (!ok) return;
+    const key = `${row.orderId}:${row.productId}`;
+    setRemovingKey(key);
+    try {
+      await adminApi.removeTestFromOrder(row.orderId, row.productId);
+      await load();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setRemovingKey("");
+    }
+  }
+
   return (
     <>
       <Topbar
@@ -181,24 +208,29 @@ export default function AddedTests() {
                   <th className="text-left px-4 py-3 font-medium">Price</th>
                   <th className="text-left px-4 py-3 font-medium">Added by</th>
                   <th className="text-left px-4 py-3 font-medium">When</th>
+                  <th className="text-right px-4 py-3 font-medium">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
                       Loading…
                     </td>
                   </tr>
                 ) : rows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
                       No tests added manually or on-site yet
                     </td>
                   </tr>
                 ) : (
-                  rows.map((r, i) => (
-                    <tr key={`${r.orderId}-${i}`} className="hover:bg-slate-50">
+                  rows.map((r, i) => {
+                    const rowKey = `${r.orderId}:${r.productId || i}`;
+                    const canRemove =
+                      r.productId && r.phleboStatus !== "Handed Off";
+                    return (
+                    <tr key={`${r.orderId}-${r.productId || i}`} className="hover:bg-slate-50">
                       <td className="px-4 py-3">
                         <div className="font-medium text-slate-800">{r.patientName}</div>
                         <div className="text-xs text-slate-400 font-mono">
@@ -225,8 +257,23 @@ export default function AddedTests() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-500">{fmtDate(r.addedAt)}</td>
+                      <td className="px-4 py-3 text-right">
+                        {canRemove ? (
+                          <button
+                            type="button"
+                            className="btn-danger !py-1 !px-2.5 !text-xs"
+                            disabled={removingKey === rowKey}
+                            onClick={() => removeAddedTest(r)}
+                          >
+                            {removingKey === rowKey ? "Removing…" : "Remove"}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-300">—</span>
+                        )}
+                      </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
