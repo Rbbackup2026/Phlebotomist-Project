@@ -67,8 +67,8 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization", "x-api-key", "x-seed-key"],
   })
 );
-app.use(express.json({ limit: "15mb" }));
-app.use(express.urlencoded({ extended: true, limit: "15mb" }));
+app.use(express.json({ limit: "40mb" }));
+app.use(express.urlencoded({ extended: true, limit: "40mb" }));
 
 // Sample / bag photos — PHI; require JWT (Bearer or ?token= for <img> / Image)
 const UPLOADS_DIR = path.join(__dirname, "uploads");
@@ -135,6 +135,14 @@ app.use("/v1/api", (_req, res) => {
 // bajaye clean 500 JSON bhejega.
 // eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => {
+  if (err?.type === "entity.too.large" || err?.status === 413 || err?.statusCode === 413) {
+    console.error("[413 payload too large]", err.message);
+    return res.status(413).json({
+      success: false,
+      message:
+        "Photos too large for upload — use fewer bag photos (max 3) and try again",
+    });
+  }
   console.error("[unhandled route error]", err);
   if (res.headersSent) return;
   res.status(500).json({ success: false, message: "Something went wrong" });
