@@ -287,6 +287,10 @@ const formatJob = (order, { mask = false } = {}) => {
     isRedraw: !!o.isRedraw,
     redrawReason: o.redrawReason || "",
     hasRedraw: !!o.hasRedraw,
+    walkInSourceJobId: o.walkInSourceJobId || null,
+    createdBySource: o.createdBySource || "partner",
+    createdByPhlebo: o.createdByPhlebo || null,
+    createdByPhleboName: o.createdByPhleboName || "",
   };
 };
 
@@ -626,6 +630,7 @@ router.post("/admin/orders", verifyToken, requireRole("admin"), async (req, res)
       specialInstructions: b.specialInstructions || "",
       phleboStatus: "Unassigned",
       adminNote: "Manually created by Ops (phone/walk-in booking)",
+      createdBySource: "admin",
     });
 
     // Auto-assign ke liye coords ke bina bhi try karna hai (agar hasCoords true hai to
@@ -1886,6 +1891,154 @@ router.get("/phlebo/jobs/route-plan", verifyPhlebo, async (req, res) => {
   }
 });
 
+/**
+ * Resolve which partner Client a phlebo should book under for direct creates.
+ */
+async function resolveClientForPhlebo(phlebo) {
+  if (phlebo.servesAllClients === false && Array.isArray(phlebo.clientIds) && phlebo.clientIds.length) {
+    const c = await Client.findById(phlebo.clientIds[0]);
+    if (c) return c;
+  }
+  const slug = (process.env.WELLO_CLIENT_SLUG || "wello").toLowerCase();
+  return (
+    (await Client.findOne({ slug, status: { $ne: "inactive" } })) ||
+    (await Client.findOne({ status: { $ne: "inactive" } }).sort({ createdAt: 1 }))
+  );
+}
+
+/**
+ * Phlebo creates a brand-new job (patient called them directly — no existing booking).
+ * Auto-assigned to the creating phlebo. Admin sees createdBySource=phlebo.
+ */
+router.post("/phlebo/jobs/create-direct", verifyPhlebo, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patientName = String(b.patientName || "").trim();
+    const address = String(b.address || "").trim();
+    const slotDate = String(b.slotDate || "").trim();
+    const slotTime = String(b.slotTime || "").trim();
+    if (!patientName || !address || !slotDate || !slotTime) {
+      return res.status(400).json({
+        success: false,
+        message: "patientName, address, slotDate, slotTime required",
+      });
+    }
+
+    const client = await resolveClientForPhlebo(req.phlebo);
+    if (!client) {
+      return res.status(400).json({
+        success: false,
+        message: "No partner source configured — contact Ops",
+      });
+    }
+
+    const items = Array.isArray(b.items)
+      ? b.items
+          .map((i) => ({
+            productId: i.productId || `manual-${Date.now()}`,
+            name: String(i.name || "").trim(),
+            category: i.category || "Custom",
+            price: Number(i.price) || 0,
+            quantity: Math.max(1, Number(i.quantity) || 1),
+            addedByPhlebo: true,
+            addedBySource: "phlebo",
+            addedAt: new Date(),
+          }))
+          .filter((i) => i.name)
+      : [];
+    if (!items.length) {
+      return res.status(400).json({ success: false, message: "At least one test is required" });
+    }
+
+    const amount = items.reduce((s, i) => s + i.price * i.quantity, 0);
+    const city = String(b.city || req.phlebo.city || "").trim();
+    const hasCoords = typeof b.lat === "number" && typeof b.lng === "number";
+    const [pickupId, trackingToken] = await Promise.all([
+      generatePickupId(),
+      generateTrackingToken(),
+    ]);
+
+    const job = await Job.create({
+      clientId: client._id,
+      clientSlug: client.slug,
+      clientName: client.name,
+      externalOrderId: `PHLEBO-${Date.now()}`,
+      pickupId,
+      trackingToken,
+      items,
+      patientName,
+      gender: b.gender || "",
+      mobileNumber: String(b.mobileNumber || "").trim(),
+      address,
+      state: b.state || "",
+      city,
+      area: b.area || "",
+      pincode: b.pincode || "",
+      lat: hasCoords ? b.lat : null,
+      lng: hasCoords ? b.lng : null,
+      geocodedAt: hasCoords ? new Date() : null,
+      slotDate,
+      slotTime,
+      amount,
+      totalAmount: amount,
+      status: "Booked",
+      paymentMethod: b.paymentMethod || "COD",
+      paymentStatus: "Unpaid",
+      specialInstructions: b.specialInstructions || "",
+      phleboStatus: "Accepted",
+      assignedPhlebo: req.phlebo._id,
+      assignedPhleboName: req.phlebo.name,
+      assignedAt: new Date(),
+      assignedBy: "phlebo-walkin",
+      acceptedAt: new Date(),
+      createdBySource: "phlebo",
+      createdByPhlebo: req.phlebo._id,
+      createdByPhleboName: req.phlebo.name,
+      adminNote: `Direct booking created by phlebo ${req.phlebo.name} (patient called phlebo)`,
+    });
+
+    if (!hasCoords) {
+      autoAssignInBackground(job); // still geocodes; assignment already set
+    }
+    await saveAndNotify(job).catch(() => {});
+
+    res.status(201).json({
+      success: true,
+      message: "Job created and assigned to you",
+      job: formatJob(job),
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: "Duplicate ID — try again" });
+    }
+    console.error("[create-direct]", error);
+    res.status(500).json({ success: false, message: error.message || "Failed to create job" });
+  }
+});
+
+/** Catalog without an existing job — for direct "Add patient" booking. */
+router.get("/phlebo/tests/catalog", verifyPhlebo, async (req, res) => {
+  try {
+    const client = await resolveClientForPhlebo(req.phlebo);
+    if (!client) {
+      return res.status(404).json({ success: false, message: "No partner source configured" });
+    }
+    const { tests, catalogScope, total } = await fetchTestCatalog(client, {
+      city: req.phlebo.city || "",
+      search: req.query.search || "",
+    });
+    res.json({
+      success: true,
+      tests,
+      total,
+      city: req.phlebo.city || "",
+      catalogScope,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.get("/phlebo/jobs/:id", verifyPhlebo, async (req, res) => {
   try {
     const order = await Job.findOne({
@@ -2176,6 +2329,9 @@ router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
         sourceJob.pickupId || sourceJob._id
       }`,
       walkInSourceJobId: sourceJob._id,
+      createdBySource: "phlebo",
+      createdByPhlebo: req.phlebo._id,
+      createdByPhleboName: req.phlebo.name,
     });
 
     await saveAndNotify(newJob).catch(() => {});

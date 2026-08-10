@@ -591,6 +591,11 @@ export default function Orders() {
                             Walk-in
                           </span>
                         ) : null}
+                        {o.createdBySource === "phlebo" || o.createdByPhleboName ? (
+                          <span className="inline-flex items-center rounded-full bg-sky-50 text-sky-700 px-2 py-0.5 text-[10px] font-medium mt-1 ml-1">
+                            By phlebo{o.createdByPhleboName ? `: ${o.createdByPhleboName}` : ""}
+                          </span>
+                        ) : null}
                         {o.rescheduleRequested ? (
                           <span className="inline-flex items-center rounded-full bg-rose-50 text-rose-700 px-2 py-0.5 text-[10px] font-medium mt-1 ml-1">
                             Patient asked to reschedule
@@ -925,6 +930,12 @@ export default function Orders() {
               {detailFor.walkInSourceJobId && (
                 <span className="inline-flex items-center rounded-full bg-violet-100 text-violet-700 px-3 py-1 text-xs font-semibold">
                   Walk-in (added by phlebo on-site)
+                </span>
+              )}
+              {(detailFor.createdBySource === "phlebo" || detailFor.createdByPhleboName) && (
+                <span className="inline-flex items-center rounded-full bg-sky-100 text-sky-800 px-3 py-1 text-xs font-semibold">
+                  Created by phlebo
+                  {detailFor.createdByPhleboName ? `: ${detailFor.createdByPhleboName}` : ""}
                 </span>
               )}
               <Badge>{detailFor.paymentStatus}</Badge>

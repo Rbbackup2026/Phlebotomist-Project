@@ -219,6 +219,23 @@ const jobSchema = new mongoose.Schema(
     adminNote: { type: String, default: "", trim: true },
     // Walk-in patient added by phlebo at another job's address
     walkInSourceJobId: { type: mongoose.Schema.Types.ObjectId, ref: "Job", default: null },
+    /**
+     * Kaunsi channel se job bani:
+     *   partner — website / partner API
+     *   admin   — Ops phone/walk-in form
+     *   phlebo  — field phlebo ne app se khud create kiya (direct patient call)
+     */
+    createdBySource: {
+      type: String,
+      enum: ["partner", "admin", "phlebo"],
+      default: "partner",
+    },
+    createdByPhlebo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Phlebotomist",
+      default: null,
+    },
+    createdByPhleboName: { type: String, default: "", trim: true },
     lastWebhookAt: { type: Date, default: null },
     lastWebhookStatus: { type: String, default: "", trim: true },
   },
