@@ -335,6 +335,10 @@ export default function Orders() {
     e.preventDefault();
     setNewOrderError("");
     if (!newOrder.clientId) return setNewOrderError("Please select a source");
+    const mobile = String(newOrder.mobileNumber || "").trim();
+    if (mobile && !/^\d{10}$/.test(mobile)) {
+      return setNewOrderError("Mobile must be exactly 10 digits");
+    }
     if (!newOrder.patientName || !newOrder.address || !newOrder.slotDate || !newOrder.slotTime) {
       return setNewOrderError("Patient name, address, and slot date/time are required");
     }
@@ -1344,8 +1348,16 @@ export default function Orders() {
               <label className="label">Mobile</label>
               <input
                 className="input"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="10-digit mobile"
                 value={newOrder.mobileNumber}
-                onChange={(e) => setNewOrder({ ...newOrder, mobileNumber: e.target.value })}
+                onChange={(e) =>
+                  setNewOrder({
+                    ...newOrder,
+                    mobileNumber: e.target.value.replace(/\D/g, "").slice(0, 10),
+                  })
+                }
               />
             </div>
             <div>

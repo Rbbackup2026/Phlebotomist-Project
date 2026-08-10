@@ -8,7 +8,8 @@ const baseItems = [
   { to: "/live-map", label: "Live Map", icon: "🗺️" },
   { to: "/added-tests", label: "Added Tests", icon: "➕" },
   { to: "/payments", label: "Payments", icon: "💳" },
-  { to: "/kits", label: "Kit Inventory", icon: "🧪" },
+  // Kit Inventory temporarily hidden.
+  // Restore: add `{ to: "/kits", label: "Kit Inventory", icon: "🧪" }` back here.
   { to: "/phlebos", label: "Phlebotomists", icon: "🧑‍⚕️" },
   { to: "/attendance", label: "Attendance", icon: "🕘" },
   { to: "/collections", label: "Collections", icon: "📅" },

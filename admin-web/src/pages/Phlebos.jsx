@@ -77,8 +77,14 @@ export default function Phlebos() {
     e.preventDefault();
     setAddSaving(true);
     setAddError("");
+    const phone = String(addForm.phone || "").trim();
+    if (!/^\d{10}$/.test(phone)) {
+      setAddError("Phone must be exactly 10 digits");
+      setAddSaving(false);
+      return;
+    }
     try {
-      await adminApi.createPhlebo(addForm);
+      await adminApi.createPhlebo({ ...addForm, phone });
       setShowAdd(false);
       setAddForm(emptyForm);
       await load();
@@ -383,8 +389,16 @@ export default function Phlebos() {
               <input
                 required
                 className="input"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="10-digit mobile"
                 value={addForm.phone}
-                onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })}
+                onChange={(e) =>
+                  setAddForm({
+                    ...addForm,
+                    phone: e.target.value.replace(/\D/g, "").slice(0, 10),
+                  })
+                }
               />
             </div>
             <div>

@@ -2017,13 +2017,13 @@ router.post("/phlebo/jobs/create-direct", verifyPhlebo, async (req, res) => {
 });
 
 /** Catalog without an existing job — for direct "Add patient" booking. */
-router.get("/phlebo/tests/catalog", verifyPhlebo, async (req, res) => {
+async function phleboDirectCatalog(req, res) {
   try {
     const client = await resolveClientForPhlebo(req.phlebo);
     if (!client) {
       return res.status(404).json({ success: false, message: "No partner source configured" });
     }
-    const { tests, catalogScope, total } = await fetchTestCatalog(client, {
+    const { tests, catalogScope, total, warning } = await fetchTestCatalog(client, {
       city: req.phlebo.city || "",
       search: req.query.search || "",
     });
@@ -2033,11 +2033,23 @@ router.get("/phlebo/tests/catalog", verifyPhlebo, async (req, res) => {
       total,
       city: req.phlebo.city || "",
       catalogScope,
+      ...(warning ? { warning } : {}),
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    // Never surface partner "Route not found" as a hard fail — manual entry still works.
+    console.error("[phlebo catalog]", error);
+    res.json({
+      success: true,
+      tests: [],
+      total: 0,
+      city: req.phlebo.city || "",
+      catalogScope: "unavailable",
+      warning: error.message || "Catalog unavailable — add test manually",
+    });
   }
-});
+}
+router.get("/phlebo/tests/catalog", verifyPhlebo, phleboDirectCatalog);
+router.get("/phlebo/catalog", verifyPhlebo, phleboDirectCatalog);
 
 router.get("/phlebo/jobs/:id", verifyPhlebo, async (req, res) => {
   try {
@@ -2068,7 +2080,7 @@ router.get("/phlebo/jobs/:id/tests/catalog", verifyPhlebo, async (req, res) => {
       return res.status(404).json({ success: false, message: "Client not found" });
     }
 
-    const { tests, catalogScope, total } = await fetchTestCatalog(client, {
+    const { tests, catalogScope, total, warning } = await fetchTestCatalog(client, {
       city: order.city,
       search: req.query.search || "",
     });
@@ -2079,9 +2091,18 @@ router.get("/phlebo/jobs/:id/tests/catalog", verifyPhlebo, async (req, res) => {
       total,
       city: order.city || "",
       catalogScope,
+      ...(warning ? { warning } : {}),
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error("[job catalog]", error);
+    res.json({
+      success: true,
+      tests: [],
+      total: 0,
+      city: "",
+      catalogScope: "unavailable",
+      warning: error.message || "Catalog unavailable — add test manually",
+    });
   }
 });
 
