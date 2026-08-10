@@ -110,6 +110,7 @@ export const adminApi = {
     request(`/admin/orders/${orderId}/tests/${encodeURIComponent(productId)}`, {
       method: "DELETE",
     }),
+  linkedPatients: (orderId) => request(`/admin/orders/${orderId}/linked-patients`),
   rescheduleOrder: (orderId, payload) =>
     request(`/admin/orders/${orderId}/reschedule`, { method: "PUT", body: payload }),
   cancelOrder: (orderId, reason) =>

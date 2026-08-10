@@ -115,6 +115,8 @@ export default function Orders() {
   const [assignFor, setAssignFor] = useState(null);
   const [labAssignFor, setLabAssignFor] = useState(null);
   const [detailFor, setDetailFor] = useState(null);
+  const [linkedPatients, setLinkedPatients] = useState({ source: null, walkIns: [], siblings: [] });
+  const [linkedLoading, setLinkedLoading] = useState(false);
   const [assignSaving, setAssignSaving] = useState(false);
   const { preset, range, applyPreset, setCustom } = useDateRange("30d");
 
@@ -347,6 +349,46 @@ export default function Orders() {
       setNewOrderSaving(false);
     }
   }
+
+  useEffect(() => {
+    if (!detailFor?._id) {
+      setLinkedPatients({ source: null, walkIns: [], siblings: [] });
+      return;
+    }
+    let cancelled = false;
+    setLinkedLoading(true);
+    adminApi
+      .linkedPatients(detailFor._id)
+      .then((res) => {
+        if (cancelled) return;
+        setLinkedPatients({
+          source: res.source || null,
+          walkIns: res.walkIns || [],
+          siblings: res.siblings || [],
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setLinkedPatients({ source: null, walkIns: [], siblings: [] });
+      })
+      .finally(() => {
+        if (!cancelled) setLinkedLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detailFor?._id]);
+
+  const openOrderFromList = async (orderId) => {
+    if (!orderId) return;
+    try {
+      const res = await adminApi.orders({ limit: 100 });
+      const found = (res.orders || []).find((o) => String(o._id) === String(orderId));
+      if (found) setDetailFor(found);
+      else alert("Order list mein nahi mila — filters clear karke search karo");
+    } catch (e) {
+      alert(e.message);
+    }
+  };
 
   async function addTestToDetail(item) {
     if (!detailFor) return;
@@ -898,6 +940,55 @@ export default function Orders() {
               ) : null}
             </div>
 
+            {/* Same-address walk-in patients (phlebo “Add patient at this address”) */}
+            {linkedLoading ? (
+              <div className="text-xs text-slate-400">Loading linked patients…</div>
+            ) : linkedPatients.source ||
+              linkedPatients.walkIns.length > 0 ||
+              linkedPatients.siblings.length > 0 ? (
+              <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-3 py-3 space-y-2">
+                <div className="text-xs font-semibold text-violet-800 uppercase tracking-wide">
+                  Same-address patients
+                </div>
+                {linkedPatients.source ? (
+                  <button
+                    type="button"
+                    className="w-full text-left rounded-lg bg-white/80 px-3 py-2 text-xs hover:bg-white"
+                    onClick={() => openOrderFromList(linkedPatients.source._id)}
+                  >
+                    <span className="text-violet-500 font-medium">Original booking · </span>
+                    <span className="font-semibold text-slate-800">
+                      {linkedPatients.source.patientName}
+                    </span>
+                    <span className="text-slate-400">
+                      {" "}
+                      · {linkedPatients.source.pickupId || String(linkedPatients.source._id).slice(-6)}
+                    </span>
+                    <span className="text-slate-500"> · {linkedPatients.source.phleboStatus}</span>
+                  </button>
+                ) : null}
+                {[...linkedPatients.walkIns, ...linkedPatients.siblings].map((w) => (
+                  <button
+                    key={w._id}
+                    type="button"
+                    className="w-full text-left rounded-lg bg-white/80 px-3 py-2 text-xs hover:bg-white"
+                    onClick={() => openOrderFromList(w._id)}
+                  >
+                    <span className="text-violet-500 font-medium">Walk-in · </span>
+                    <span className="font-semibold text-slate-800">{w.patientName}</span>
+                    <span className="text-slate-400">
+                      {" "}
+                      · {w.pickupId || String(w._id).slice(-6)}
+                    </span>
+                    <span className="text-slate-500">
+                      {" "}
+                      · {w.phleboStatus} · ₹{w.totalAmount ?? 0}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
             {detailFor.status === "Cancelled" ? (
               <div className="rounded-lg bg-rose-50 text-rose-800 text-xs px-3 py-3 space-y-1.5">
                 <div>
@@ -1000,71 +1091,155 @@ export default function Orders() {
                 </div>
               </details>
             </div>
-            {(detailFor.samples || []).length > 0 ? (
-              <div>
-                <div className="label mb-1.5">Samples</div>
-                <div className="space-y-1">
-                  {detailFor.samples.map((s, i) => (
-                    <div
-                      key={i}
-                      className={`rounded-lg px-3 py-2 text-xs ${
-                        s.rejected ? "bg-rose-50" : "bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono">{s.barcode}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-500">{s.sampleType}</span>
-                          {s.photoUrl || s.hasPhoto || (s.photoUrls && s.photoUrls.length) ? (
-                            <span className="text-emerald-600 font-medium">
-                              Photo ✓
-                              {Array.isArray(s.photoUrls) && s.photoUrls.length > 1
-                                ? ` (${s.photoUrls.length})`
-                                : ""}
-                            </span>
-                          ) : (
-                            <span className="text-amber-600 font-medium">No photo</span>
-                          )}
-                          {canManage && !s.rejected ? (
-                            <button
-                              disabled={rejectSaving}
-                              onClick={() => rejectSample(s.barcode)}
-                              className="text-rose-600 hover:text-rose-800 font-medium"
-                            >
-                              Reject
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
+            {(detailFor.trfBarcode ||
+              detailFor.trfPhotoUrl ||
+              (detailFor.trfPhotoUrls && detailFor.trfPhotoUrls.length) ||
+              detailFor.collectionPhotoUrl ||
+              (detailFor.collectionPhotoUrls && detailFor.collectionPhotoUrls.length) ||
+              (detailFor.samples || []).length > 0) ? (
+              <div className="space-y-3">
+                {detailFor.trfBarcode ||
+                detailFor.trfPhotoUrl ||
+                (detailFor.trfPhotoUrls && detailFor.trfPhotoUrls.length) ? (
+                  <div>
+                    <div className="label mb-1.5">TRF</div>
+                    <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs space-y-2">
+                      {detailFor.trfBarcode ? (
+                        <div className="font-mono text-slate-700">{detailFor.trfBarcode}</div>
+                      ) : null}
                       {(() => {
                         const urls =
-                          Array.isArray(s.photoUrls) && s.photoUrls.length
-                            ? s.photoUrls.filter(Boolean)
-                            : s.photoUrl
-                              ? [s.photoUrl]
+                          Array.isArray(detailFor.trfPhotoUrls) && detailFor.trfPhotoUrls.length
+                            ? detailFor.trfPhotoUrls.filter(Boolean)
+                            : detailFor.trfPhotoUrl
+                              ? [detailFor.trfPhotoUrl]
                               : [];
-                        if (!urls.length) return null;
+                        if (!urls.length) {
+                          return <div className="text-amber-600 font-medium">No TRF photo</div>;
+                        }
                         return (
-                          <div className="mt-2 flex gap-2 overflow-x-auto">
+                          <div className="flex gap-2 overflow-x-auto">
                             {urls.map((src, pi) => (
                               <img
                                 key={pi}
                                 src={mediaUrl(src)}
-                                alt={`Sample ${s.barcode} ${pi + 1}`}
+                                alt={`TRF ${pi + 1}`}
                                 className="rounded-lg max-h-48 max-w-[220px] object-contain bg-white border border-slate-100"
                               />
                             ))}
                           </div>
                         );
                       })()}
-                      {s.rejected ? (
-                        <div className="mt-1 text-rose-700 font-medium">
-                          Rejected by lab{s.rejectionReason ? `: ${s.rejectionReason}` : ""}
-                        </div>
-                      ) : null}
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ) : null}
+
+                {(detailFor.samples || []).length > 0 ? (
+                  <div>
+                    <div className="label mb-1.5">Samples</div>
+                    <div className="space-y-1">
+                      {detailFor.samples.map((s, i) => {
+                        const sampleUrls =
+                          Array.isArray(s.photoUrls) && s.photoUrls.length
+                            ? s.photoUrls.filter(Boolean)
+                            : s.photoUrl
+                              ? [s.photoUrl]
+                              : [];
+                        const collectionUrls =
+                          Array.isArray(detailFor.collectionPhotoUrls) &&
+                          detailFor.collectionPhotoUrls.length
+                            ? detailFor.collectionPhotoUrls.filter(Boolean)
+                            : detailFor.collectionPhotoUrl
+                              ? [detailFor.collectionPhotoUrl]
+                              : [];
+                        const hasOwnPhoto = sampleUrls.length > 0;
+                        const hasSharedTubesPhoto = collectionUrls.length > 0;
+                        return (
+                          <div
+                            key={s._id || s.barcode || i}
+                            className={`rounded-lg px-3 py-2 text-xs ${
+                              s.rejected ? "bg-rose-50" : "bg-slate-50"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono">{s.barcode}</span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-slate-500">{s.sampleType}</span>
+                                {hasOwnPhoto ? (
+                                  <span className="text-emerald-600 font-medium">
+                                    Photo ✓
+                                    {sampleUrls.length > 1 ? ` (${sampleUrls.length})` : ""}
+                                  </span>
+                                ) : hasSharedTubesPhoto ? (
+                                  <span className="text-emerald-600 font-medium">
+                                    Tubes photo ✓
+                                  </span>
+                                ) : (
+                                  <span className="text-amber-600 font-medium">No photo</span>
+                                )}
+                                {canManage && !s.rejected ? (
+                                  <button
+                                    disabled={rejectSaving}
+                                    onClick={() => rejectSample(s.barcode)}
+                                    className="text-rose-600 hover:text-rose-800 font-medium"
+                                  >
+                                    Reject
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
+                            {hasOwnPhoto ? (
+                              <div className="mt-2 flex gap-2 overflow-x-auto">
+                                {sampleUrls.map((src, pi) => (
+                                  <img
+                                    key={pi}
+                                    src={mediaUrl(src)}
+                                    alt={`Sample ${s.barcode} ${pi + 1}`}
+                                    className="rounded-lg max-h-48 max-w-[220px] object-contain bg-white border border-slate-100"
+                                  />
+                                ))}
+                              </div>
+                            ) : null}
+                            {s.rejected ? (
+                              <div className="mt-1 text-rose-700 font-medium">
+                                Rejected by lab
+                                {s.rejectionReason ? `: ${s.rejectionReason}` : ""}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+
+                {(() => {
+                  const urls =
+                    Array.isArray(detailFor.collectionPhotoUrls) &&
+                    detailFor.collectionPhotoUrls.length
+                      ? detailFor.collectionPhotoUrls.filter(Boolean)
+                      : detailFor.collectionPhotoUrl
+                        ? [detailFor.collectionPhotoUrl]
+                        : [];
+                  if (!urls.length) return null;
+                  return (
+                    <div>
+                      <div className="label mb-1.5">Tubes photo (all samples)</div>
+                      <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs">
+                        <div className="flex gap-2 overflow-x-auto">
+                          {urls.map((src, pi) => (
+                            <img
+                              key={pi}
+                              src={mediaUrl(src)}
+                              alt={`Tubes ${pi + 1}`}
+                              className="rounded-lg max-h-48 max-w-[220px] object-contain bg-white border border-slate-100"
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             ) : null}
 

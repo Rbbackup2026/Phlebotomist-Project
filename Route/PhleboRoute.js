@@ -345,6 +345,74 @@ router.get("/admin/orders", verifyToken, attachScope, async (req, res) => {
   }
 });
 
+/**
+ * Same-address walk-in links for admin order detail:
+ *   - source job (agar ye walk-in hai)
+ *   - walk-ins created from this job
+ *   - siblings (dusre walk-ins same source se)
+ */
+router.get(
+  "/admin/orders/:id/linked-patients",
+  verifyToken,
+  requireRole("superadmin", "admin", "lab", "ops"),
+  attachScope,
+  async (req, res) => {
+    try {
+      const job = await Job.findOne({ _id: req.params.id, ...req.scopeFilter });
+      if (!job) {
+        return res.status(404).json({ success: false, message: "Order not found" });
+      }
+
+      const pick = (o) =>
+        o
+          ? {
+              _id: o._id,
+              pickupId: o.pickupId,
+              patientName: o.patientName,
+              mobileNumber: o.mobileNumber,
+              phleboStatus: o.phleboStatus,
+              status: o.status,
+              totalAmount: o.totalAmount ?? o.amount ?? 0,
+              paymentStatus: o.paymentStatus,
+              walkInSourceJobId: o.walkInSourceJobId,
+              assignedPhleboName: o.assignedPhleboName,
+              slotDate: o.slotDate,
+              slotTime: o.slotTime,
+              createdAt: o.createdAt,
+            }
+          : null;
+
+      let source = null;
+      if (job.walkInSourceJobId) {
+        source = pick(await Job.findById(job.walkInSourceJobId));
+      }
+
+      const walkIns = (
+        await Job.find({ walkInSourceJobId: job._id }).sort({ createdAt: 1 })
+      ).map(pick);
+
+      let siblings = [];
+      if (job.walkInSourceJobId) {
+        siblings = (
+          await Job.find({
+            walkInSourceJobId: job.walkInSourceJobId,
+            _id: { $ne: job._id },
+          }).sort({ createdAt: 1 })
+        ).map(pick);
+      }
+
+      res.json({
+        success: true,
+        source,
+        walkIns,
+        siblings,
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+);
+
 // Free-city-traffic assumption for the "tight schedule" travel-time estimate below —
 // deliberately conservative (slow) so we warn early rather than late. Not meant to be
 // precise ETA (that's buildRoutePlan's job with live pings) — just a same-day heads-up
@@ -2066,20 +2134,22 @@ router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
       generateTrackingToken(),
     ]);
 
+    // Already at the address — start at Arrived so OTP/consent/collect can proceed
+    // without forcing En Route again. assignedBy must be in Job schema enum.
     const newJob = await Job.create({
-      // inherit from source job
       clientId: sourceJob.clientId,
       clientSlug: sourceJob.clientSlug,
       clientName: sourceJob.clientName,
       city: sourceJob.city,
+      state: sourceJob.state || "",
       area: sourceJob.area,
       pincode: sourceJob.pincode,
       address: sourceJob.address,
       lat: sourceJob.lat,
       lng: sourceJob.lng,
+      geocodedAt: sourceJob.geocodedAt || (sourceJob.lat != null ? new Date() : null),
       slotDate: sourceJob.slotDate,
       slotTime: sourceJob.slotTime,
-      // new patient details
       externalOrderId: `WALKIN-${Date.now()}`,
       pickupId,
       trackingToken,
@@ -2093,21 +2163,22 @@ router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
       paymentMethod: paymentMethod || sourceJob.paymentMethod || "COD",
       paymentStatus: "Unpaid",
       status: "Booked",
-      // pre-assign to the same phlebo
-      phleboStatus: "Accepted",
+      phleboStatus: "Arrived",
       assignedPhlebo: req.phlebo._id,
       assignedPhleboName: req.phlebo.name,
+      assignedAt: new Date(),
       assignedBy: "phlebo-walkin",
+      assignedLab: sourceJob.assignedLab || null,
+      assignedLabName: sourceJob.assignedLabName || "",
       acceptedAt: new Date(),
-      adminNote: `Walk-in patient added by phlebo ${req.phlebo.name} at address of job #${sourceJob.pickupId}`,
+      arrivedAt: sourceJob.arrivedAt || new Date(),
+      adminNote: `Walk-in patient added by phlebo ${req.phlebo.name} at address of ${
+        sourceJob.pickupId || sourceJob._id
+      }`,
       walkInSourceJobId: sourceJob._id,
     });
 
-    // Push notification to admin (non-fatal)
-    sendPushToPhlebo(req.phlebo._id, {
-      title: "Walk-in patient added",
-      body: `${String(patientName).trim()} — admin notified`,
-    }).catch(() => {});
+    await saveAndNotify(newJob).catch(() => {});
 
     res.status(201).json({
       success: true,
@@ -2118,7 +2189,11 @@ router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
     if (error.code === 11000) {
       return res.status(400).json({ success: false, message: "Duplicate ID — please try again" });
     }
-    res.status(500).json({ success: false, message: error.message });
+    console.error("[add-patient]", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to create walk-in job",
+    });
   }
 });
 

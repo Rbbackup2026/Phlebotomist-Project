@@ -91,7 +91,11 @@ const jobSchema = new mongoose.Schema(
     assignedLabName: { type: String, default: "", trim: true },
     /** "auto" = services/autoAssign.js picked the phlebo, "manual" = Ops assigned via
      *  the dashboard. Cleared back to "" whenever the job goes unassigned. */
-    assignedBy: { type: String, enum: ["", "auto", "manual"], default: "" },
+    assignedBy: {
+      type: String,
+      enum: ["", "auto", "manual", "phlebo-walkin"],
+      default: "",
+    },
     phleboStatus: {
       type: String,
       enum: [

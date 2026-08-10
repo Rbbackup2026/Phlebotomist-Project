@@ -39,6 +39,7 @@ export default function AddedTests() {
   const [orderSearch, setOrderSearch] = useState("");
   const [addSaving, setAddSaving] = useState(false);
   const [addMsg, setAddMsg] = useState("");
+  const [removingKey, setRemovingKey] = useState("");
 
   const pickedOrder = useMemo(
     () => pickOrders.find((o) => o._id === pickOrderId) || null,
@@ -119,8 +120,6 @@ export default function AddedTests() {
       setAddSaving(false);
     }
   }
-
-  const [removingKey, setRemovingKey] = useState("");
 
   async function removeAddedTest(row) {
     if (!row?.orderId || !row?.productId) {
