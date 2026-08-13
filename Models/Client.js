@@ -32,7 +32,7 @@ const clientSchema = new mongoose.Schema(
       default: "active",
     },
     contactEmail: { type: String, default: "", trim: true },
-    /** Partner website product API base, e.g. http://localhost:3000/v1/api */
+    /** Test catalog URL: LIS rate-list full endpoint, or legacy Wello /v1/api base */
     catalogApiUrl: { type: String, default: "", trim: true },
     notes: { type: String, default: "", trim: true },
   },

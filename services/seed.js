@@ -32,8 +32,12 @@ async function seedPlatform() {
     "http://localhost:3000/v1/api/phlebo/webhook";
   const fixedApiKey = process.env.WELLO_API_KEY || "";
   const fixedWebhookSecret = process.env.WELLO_WEBHOOK_SECRET || "";
-  const catalogApiUrl =
-    process.env.WELLO_CATALOG_API_BASE || "http://localhost:3000/v1/api";
+  // Prefer LIS rate-list URL when set; otherwise legacy Wello catalog base
+  const catalogApiUrl = (
+    process.env.LIS_CATALOG_API_URL ||
+    process.env.WELLO_CATALOG_API_BASE ||
+    "http://localhost:3000/v1/api"
+  ).replace(/\/$/, "");
 
   let client = await Client.findOne({ slug });
   if (!client) {
