@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 export default function Topbar({ title, subtitle }) {
   const { user, logout } = useAuth();
-  const { mobileOpen, setMobileOpen, collapsed, toggleCollapsed } = useSidebar();
+  const { mobileOpen, setMobileOpen } = useSidebar();
   const navigate = useNavigate();
   const isSuperadmin = user?.role === "superadmin";
 
@@ -19,15 +19,6 @@ export default function Topbar({ title, subtitle }) {
           title={mobileOpen ? "Close menu" : "Open menu"}
         >
           {mobileOpen ? "✕" : "☰"}
-        </button>
-        {/* Desktop: collapse/expand left sidebar */}
-        <button
-          onClick={toggleCollapsed}
-          className="hidden md:inline-flex h-9 w-9 rounded-lg items-center justify-center text-slate-500 hover:bg-slate-100 shrink-0 border border-slate-200"
-          aria-label={collapsed ? "Expand menu" : "Collapse menu"}
-          title={collapsed ? "Expand menu" : "Collapse menu"}
-        >
-          {collapsed ? "☰" : "«"}
         </button>
         <div>
           <div className="flex items-center gap-2">

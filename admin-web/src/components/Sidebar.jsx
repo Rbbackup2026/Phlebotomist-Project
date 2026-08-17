@@ -116,8 +116,18 @@ export default function Sidebar() {
           ${collapsed ? "md:w-[76px]" : "md:w-60"} w-64`}
       >
         <div className={`px-4 py-5 flex items-center gap-2.5 ${collapsed ? "md:flex-col md:gap-2 md:px-2" : ""}`}>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            className={`hidden md:flex h-9 w-9 rounded-xl items-center justify-center text-white font-bold shrink-0 ${theme.logoBg} hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40`}
+            style={{ boxShadow: theme.logoShadow }}
+            aria-label={collapsed ? "Expand menu" : "Collapse menu"}
+            title={collapsed ? "Open menu" : "Close menu"}
+          >
+            {theme.logoMark}
+          </button>
           <div
-            className={`h-9 w-9 rounded-xl flex items-center justify-center text-white font-bold shrink-0 ${theme.logoBg}`}
+            className={`md:hidden h-9 w-9 rounded-xl flex items-center justify-center text-white font-bold shrink-0 ${theme.logoBg}`}
             style={{ boxShadow: theme.logoShadow }}
           >
             {theme.logoMark}
@@ -127,15 +137,6 @@ export default function Sidebar() {
             <div className={`text-[11px] mt-0.5 truncate ${theme.subText}`}>{roleLabel}</div>
           </div>
 
-          {/* Top collapse / close controls */}
-          <button
-            onClick={toggleCollapsed}
-            className={`hidden md:flex h-8 w-8 rounded-lg items-center justify-center shrink-0 ${theme.ghostBtn}`}
-            aria-label={collapsed ? "Expand menu" : "Collapse menu"}
-            title={collapsed ? "Expand menu" : "Collapse menu"}
-          >
-            {collapsed ? "»" : "«"}
-          </button>
           <button
             onClick={() => setMobileOpen(false)}
             className={`ml-auto md:hidden h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${theme.ghostBtn}`}
