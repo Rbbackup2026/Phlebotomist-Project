@@ -120,6 +120,12 @@ export const adminApi = {
     }),
   clients: () => request("/admin/clients"),
   phlebos: () => request("/admin/phlebos"),
+  mapsConfig: () => request("/admin/maps-config"),
+  placesSuggest: (q) => request(`/admin/places/suggest?q=${encodeURIComponent(q || "")}`),
+  placesDetails: (id, label) =>
+    request(
+      `/admin/places/details?id=${encodeURIComponent(id || "")}&label=${encodeURIComponent(label || "")}`
+    ),
   phlebo: (id) => request(`/admin/phlebos/${id}`),
   createPhlebo: (payload) => request("/admin/phlebos", { method: "POST", body: payload }),
   updatePhlebo: (id, payload) => request(`/admin/phlebos/${id}`, { method: "PUT", body: payload }),

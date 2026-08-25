@@ -77,6 +77,7 @@ app.use("/uploads", protectUploads, express.static(UPLOADS_DIR));
 
 // Rate limits on auth / partner / public mutate (Postman spam & brute-force)
 app.use("/v1/api/login", authLimiter);
+app.use("/v1/api/field/auth/login", authLimiter);
 app.use("/v1/api/phlebo/auth/otp/send", otpSendLimiter);
 app.use("/v1/api/phlebo/auth/otp/verify", authLimiter);
 app.use("/v1/api/partner", partnerLimiter);
@@ -106,6 +107,7 @@ app.use("/v1/api", require("./Route/AuthRoute"));
 app.use("/v1/api", require("./Route/PartnerRoute"));
 app.use("/v1/api", require("./Route/PhleboRoute"));
 app.use("/v1/api", require("./Route/TicketRoute"));
+app.use("/v1/api", require("./Route/FieldAuthRoute"));
 // Patient-facing tracking/rating/reschedule-request — no auth, keyed by trackingToken.
 app.use("/v1/api/public", require("./Route/PublicRoute"));
 

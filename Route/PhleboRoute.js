@@ -13,8 +13,10 @@ const KitAssignment = require("../Models/KitAssignment");
 const { saveAndNotify } = require("../services/webhook");
 const { fetchTestCatalog, fetchTestById } = require("../services/catalog");
 const { geocodeAndAutoAssign, tryAutoAssignPendingJobs } = require("../services/autoAssign");
+const { suggestPlaces, resolvePlace, coordsForAddress } = require("../services/places");
 const { generatePickupId, generateTrackingToken } = require("../services/pickupId");
 const { sendPushToPhlebo } = require("../services/push");
+const { assertFieldIdentityFree } = require("../services/fieldIdentity");
 const { computeIncentive } = require("../services/incentive");
 const Attendance = require("../Models/Attendance");
 const PhleboLeave = require("../Models/PhleboLeave");
@@ -595,7 +597,8 @@ router.post("/admin/orders", verifyToken, requireRole("admin"), async (req, res)
       : [];
     const itemsTotal = items.reduce((s, i) => s + i.price * i.quantity, 0);
     const amount = itemsTotal || Number(b.amount) || 0;
-    const hasCoords = typeof b.lat === "number" && typeof b.lng === "number";
+    const geo = await coordsForAddress(String(b.address).trim(), b.lat, b.lng);
+    const hasCoords = geo.lat != null && geo.lng != null;
     const [pickupId, trackingToken] = await Promise.all([
       generatePickupId(),
       generateTrackingToken(),
@@ -617,8 +620,8 @@ router.post("/admin/orders", verifyToken, requireRole("admin"), async (req, res)
       city: b.city || "",
       area: b.area || "",
       pincode: b.pincode || "",
-      lat: hasCoords ? b.lat : null,
-      lng: hasCoords ? b.lng : null,
+      lat: geo.lat,
+      lng: geo.lng,
       geocodedAt: hasCoords ? new Date() : null,
       slotDate: String(b.slotDate).trim(),
       slotTime: String(b.slotTime).trim(),
@@ -648,6 +651,32 @@ router.post("/admin/orders", verifyToken, requireRole("admin"), async (req, res)
 });
 
 /** Ops: client ka test catalog dekho (manual order/test add karte waqt) */
+router.get("/admin/maps-config", verifyToken, requireRole("superadmin", "admin"), (_req, res) => {
+  const key = String(
+    process.env.GOOGLE_MAPS_BROWSER_KEY || process.env.GOOGLE_MAPS_API_KEY || ""
+  ).trim();
+  res.json({ success: true, enabled: Boolean(key), googleMapsKey: key });
+});
+
+router.get("/admin/places/suggest", verifyToken, requireRole("superadmin", "admin"), async (req, res) => {
+  try {
+    const suggestions = await suggestPlaces(req.query.q);
+    res.json({ success: true, suggestions });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get("/admin/places/details", verifyToken, requireRole("superadmin", "admin"), async (req, res) => {
+  try {
+    const place = await resolvePlace(req.query.id, req.query.label);
+    if (!place) return res.status(404).json({ success: false, message: "Place not found" });
+    res.json({ success: true, place });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.get("/admin/catalog", verifyToken, async (req, res) => {
   try {
     const { clientId, city, search } = req.query;
@@ -891,11 +920,20 @@ router.post("/admin/phlebos", verifyToken, requireRole("admin"), async (req, res
     if (exists) {
       return res.status(400).json({ success: false, message: "Phone already registered" });
     }
+    const resolvedEmployeeId = employeeId || `PHL-${Date.now().toString().slice(-6)}`;
+    try {
+      await assertFieldIdentityFree({
+        employeeId: resolvedEmployeeId,
+        phone: String(phone).trim(),
+      });
+    } catch (idErr) {
+      return res.status(idErr.status || 400).json({ success: false, message: idErr.message });
+    }
     const passwordHash = password ? await bcrypt.hash(String(password), 10) : "";
     const phlebo = await Phlebotomist.create({
       name: String(name).trim(),
       phone: String(phone).trim(),
-      employeeId: employeeId || `PHL-${Date.now().toString().slice(-6)}`,
+      employeeId: resolvedEmployeeId,
       zone: zone || "",
       city: resolvedCity,
       passwordHash,
@@ -1458,8 +1496,10 @@ router.post("/phlebo/auth/otp/verify", async (req, res) => {
     res.json({
       success: true,
       token,
+      role: "phlebo",
       phlebo: {
         id: phlebo._id,
+        role: "phlebo",
         name: phlebo.name,
         phone: phlebo.phone,
         employeeId: phlebo.employeeId,
@@ -1480,6 +1520,7 @@ router.get("/phlebo/me", verifyPhlebo, async (req, res) => {
     success: true,
     phlebo: {
       id: p._id,
+      role: "phlebo",
       name: p.name,
       phone: p.phone,
       employeeId: p.employeeId,
@@ -1493,6 +1534,25 @@ router.get("/phlebo/me", verifyPhlebo, async (req, res) => {
       todayDistanceKm: p.todayDistanceKm || 0,
     },
   });
+});
+
+router.get("/phlebo/places/suggest", verifyPhlebo, async (req, res) => {
+  try {
+    const suggestions = await suggestPlaces(req.query.q);
+    res.json({ success: true, suggestions });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get("/phlebo/places/details", verifyPhlebo, async (req, res) => {
+  try {
+    const place = await resolvePlace(req.query.id, req.query.label);
+    if (!place) return res.status(404).json({ success: false, message: "Place not found" });
+    res.json({ success: true, place });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 /**
@@ -1952,7 +2012,8 @@ router.post("/phlebo/jobs/create-direct", verifyPhlebo, async (req, res) => {
 
     const amount = items.reduce((s, i) => s + i.price * i.quantity, 0);
     const city = String(b.city || req.phlebo.city || "").trim();
-    const hasCoords = typeof b.lat === "number" && typeof b.lng === "number";
+    const geo = await coordsForAddress(address, b.lat, b.lng);
+    const hasCoords = geo.lat != null && geo.lng != null;
     const [pickupId, trackingToken] = await Promise.all([
       generatePickupId(),
       generateTrackingToken(),
@@ -1974,8 +2035,8 @@ router.post("/phlebo/jobs/create-direct", verifyPhlebo, async (req, res) => {
       city,
       area: b.area || "",
       pincode: b.pincode || "",
-      lat: hasCoords ? b.lat : null,
-      lng: hasCoords ? b.lng : null,
+      lat: geo.lat,
+      lng: geo.lng,
       geocodedAt: hasCoords ? new Date() : null,
       slotDate,
       slotTime,

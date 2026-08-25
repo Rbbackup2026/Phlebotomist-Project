@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import Topbar from "../components/Topbar.jsx";
 import { adminApi } from "../api.js";
+import { loadGoogleMaps } from "../lib/googleMaps.js";
 
 const REFRESH_MS = 20000;
-const DEFAULT_CENTER = [22.9734, 78.6569]; // India centroid — used until markers exist
-const DEFAULT_ZOOM = 5;
+const INDIA = { lat: 22.9734, lng: 78.6569 };
 
 function timeAgo(dateStr) {
   if (!dateStr) return "never";
@@ -21,11 +21,13 @@ export default function LiveMap() {
   const [phlebos, setPhlebos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [mapsReady, setMapsReady] = useState(false);
+  const [needKey, setNeedKey] = useState(false);
   const [selected, setSelected] = useState(null);
 
   const mapDivRef = useRef(null);
   const mapRef = useRef(null);
-  const markersLayerRef = useRef(null);
+  const markersRef = useRef({});
 
   async function load() {
     try {
@@ -45,90 +47,144 @@ export default function LiveMap() {
     }
   }
 
-  // Poll every REFRESH_MS — location pings come from the phlebo app periodically,
-  // so the map stays "live" without the admin needing to manually refresh.
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const cfg = await adminApi.mapsConfig();
+        if (!cfg.googleMapsKey) {
+          setNeedKey(true);
+          setLoading(false);
+          return;
+        }
+        await loadGoogleMaps(cfg.googleMapsKey, () => {
+          setError(
+            "Google Maps key reject. HTTP referrers mein http://localhost:3010/* add karo. Billing ON, Maps JavaScript API enable."
+          );
+        });
+        if (!cancelled) setMapsReady(true);
+      } catch (e) {
+        if (!cancelled) setError(e.message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mapsReady) return;
     load();
     const t = setInterval(load, REFRESH_MS);
     return () => clearInterval(t);
-  }, []);
+  }, [mapsReady]);
 
-  // Init Leaflet map once (window.L comes from the CDN script tag in index.html).
   useEffect(() => {
-    if (!window.L || mapRef.current) return;
-    const map = window.L.map(mapDivRef.current).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
-    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap contributors",
-      maxZoom: 19,
-    }).addTo(map);
-    mapRef.current = map;
-    markersLayerRef.current = window.L.layerGroup().addTo(map);
-  }, []);
+    if (!mapsReady || !mapDivRef.current || mapRef.current) return;
+    mapRef.current = new window.google.maps.Map(mapDivRef.current, {
+      center: INDIA,
+      zoom: 5,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: true,
+    });
+  }, [mapsReady]);
 
-  // Re-draw markers whenever the phlebo list changes.
   useEffect(() => {
-    if (!mapRef.current || !markersLayerRef.current) return;
-    const layer = markersLayerRef.current;
-    layer.clearLayers();
+    const map = mapRef.current;
+    const g = window.google;
+    if (!map || !g?.maps) return;
+    const markers = markersRef.current;
+    const seen = new Set();
 
-    if (!phlebos.length) return;
-
-    const bounds = [];
     phlebos.forEach((p) => {
-      const marker = window.L.circleMarker([p.currentLat, p.currentLng], {
-        radius: 9,
-        color: "#7c3aed",
-        fillColor: "#a78bfa",
-        fillOpacity: 0.9,
-        weight: 2,
-      }).addTo(layer);
-      marker.bindPopup(
-        `<div style="font-size:13px">
-          <div style="font-weight:600">${p.name}</div>
-          <div style="color:#64748b">${p.phone} · ${p.zone || "—"}</div>
-          <div style="color:#94a3b8;font-size:11px;margin-top:2px">Updated ${timeAgo(p.lastLocationAt)}</div>
-        </div>`
-      );
-      marker.on("click", () => setSelected(p._id));
-      bounds.push([p.currentLat, p.currentLng]);
+      const id = String(p._id);
+      seen.add(id);
+      const pos = { lat: p.currentLat, lng: p.currentLng };
+      if (!markers[id]) {
+        markers[id] = new g.maps.Marker({
+          map,
+          position: pos,
+          title: p.name,
+          icon: {
+            path: g.maps.SymbolPath.CIRCLE,
+            scale: 9,
+            fillColor: "#a78bfa",
+            fillOpacity: 1,
+            strokeColor: "#7c3aed",
+            strokeWeight: 2,
+          },
+        });
+        markers[id].addListener("click", () => setSelected(id));
+      } else {
+        markers[id].setPosition(pos);
+      }
     });
 
-    if (bounds.length === 1) {
-      mapRef.current.setView(bounds[0], 13);
-    } else if (bounds.length > 1) {
-      mapRef.current.fitBounds(bounds, { padding: [40, 40] });
+    Object.keys(markers).forEach((id) => {
+      if (!seen.has(id)) {
+        markers[id].setMap(null);
+        delete markers[id];
+      }
+    });
+
+    if (selected) return;
+    if (phlebos.length === 1) {
+      map.setCenter({ lat: phlebos[0].currentLat, lng: phlebos[0].currentLng });
+      map.setZoom(13);
+    } else if (phlebos.length > 1) {
+      const b = new g.maps.LatLngBounds();
+      phlebos.forEach((p) => b.extend({ lat: p.currentLat, lng: p.currentLng }));
+      map.fitBounds(b, 48);
     }
-  }, [phlebos]);
+  }, [phlebos, selected]);
 
   function focusOn(p) {
     setSelected(p._id);
     if (mapRef.current) {
-      mapRef.current.setView([p.currentLat, p.currentLng], 15);
+      mapRef.current.panTo({ lat: p.currentLat, lng: p.currentLng });
+      mapRef.current.setZoom(15);
     }
   }
 
   return (
     <>
-      <Topbar title="Live Map" subtitle="On-duty phlebotomists — real-time location" />
+      <Topbar title="Live Map" subtitle="Google Maps — on-duty phlebotomists, real-time location" />
       <div className="p-4 md:p-8 space-y-4">
+        {needKey ? (
+          <div className="rounded-lg bg-amber-50 text-amber-900 text-sm px-4 py-3 space-y-2">
+            <p className="font-semibold">Google Maps browser key chahiye</p>
+            <ol className="list-decimal ml-4 space-y-1">
+              <li>
+                Cloud Console key pe Website restrictions:{" "}
+                <code>http://localhost:3010/*</code>
+              </li>
+              <li>
+                <code className="text-xs">PhleboBackend/.env</code> mein{" "}
+                <code>GOOGLE_MAPS_BROWSER_KEY=</code> (ambulance wali same key chalegi)
+              </li>
+              <li>Phlebo backend restart, phir ye page hard refresh</li>
+            </ol>
+          </div>
+        ) : null}
         {error ? <div className="rounded-lg bg-rose-50 text-rose-700 text-sm px-4 py-3">{error}</div> : null}
 
         <div className="flex items-center gap-2 text-sm text-slate-500">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-violet-500" />
           {loading ? "Loading…" : `${phlebos.length} phlebo live on map`}
-          <span className="text-xs text-slate-300 ml-auto">Auto-refreshes every 20s</span>
+          <span className="text-xs text-slate-300 ml-auto">Google Maps · refresh 20s</span>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
           <div className="card overflow-hidden lg:col-span-3">
-            <div ref={mapDivRef} style={{ height: "60vh", width: "100%" }} />
+            <div ref={mapDivRef} style={{ height: "60vh", width: "100%", minHeight: 360 }} />
           </div>
 
           <div className="card p-3 space-y-1.5 max-h-[60vh] overflow-y-auto">
             <div className="text-xs font-medium text-slate-400 uppercase tracking-wide px-1 pb-1">
               On duty now
             </div>
-            {phlebos.length === 0 && !loading ? (
+            {phlebos.length === 0 && !loading && !needKey ? (
               <div className="text-sm text-slate-400 px-1 py-4 text-center">
                 No phlebos currently on duty and sharing location
               </div>

@@ -7,6 +7,7 @@ import DateRangeBar from "../components/DateRangeBar.jsx";
 import TestPicker from "../components/TestPicker.jsx";
 import { useDateRange } from "../hooks/useDateRange.js";
 import { adminApi, authApi, mediaUrl } from "../api.js";
+import AddressField from "../components/AddressField.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { visibleClients, displaySource, sourceOptionsForBooking } from "../utils/clients.js";
 
@@ -42,6 +43,8 @@ const emptyNewOrder = {
   mobileNumber: "",
   gender: "",
   address: "",
+  lat: null,
+  lng: null,
   city: "",
   area: "",
   state: "",
@@ -1383,12 +1386,13 @@ export default function Orders() {
           </div>
 
           <div>
-            <label className="label">Address</label>
-            <input
+            <AddressField
+              label="Address"
               required
-              className="input"
               value={newOrder.address}
-              onChange={(e) => setNewOrder({ ...newOrder, address: e.target.value })}
+              onChange={({ address, lat, lng }) =>
+                setNewOrder({ ...newOrder, address, lat, lng })
+              }
             />
           </div>
 

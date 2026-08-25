@@ -411,7 +411,7 @@ export default function Phlebos() {
               />
             </div>
             <div>
-              <label className="label">Password (Ops use only)</label>
+              <label className="label">Password (field app login)</label>
               <input
                 type="password"
                 className="input"
