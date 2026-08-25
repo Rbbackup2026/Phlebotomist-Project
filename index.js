@@ -52,6 +52,7 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const app = express();
+app.set("trust proxy", 1);
 app.use(morgan("dev"));
 app.use(
   helmet({
@@ -101,6 +102,14 @@ app.get("/health", (_req, res) => {
     mongo: state === 1 ? "connected" : "disconnected",
     db: mongoose.connection.name || null,
   });
+});
+
+const PUBLIC_DIR = path.join(__dirname, "public");
+app.get("/privacy", (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, "privacy.html"));
+});
+app.get("/account-deletion", (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, "account-deletion.html"));
 });
 
 app.use("/v1/api", require("./Route/AuthRoute"));

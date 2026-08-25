@@ -31,6 +31,7 @@ const {
   allowDemoOtp,
   DEMO_OTP,
   isDemoOtp,
+  isProduction,
 } = require("../services/securityConfig");
 
 const ADD_TEST_STATUSES = ["Arrived", "OTP Verified", "Consent Done", "Sample Collected"];
@@ -1453,7 +1454,9 @@ router.post("/phlebo/auth/otp/send", async (req, res) => {
     phlebo.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
     await phlebo.save();
 
-    console.log(`[Phlebo OTP] ${phone} => ${otp}`);
+    if (!isProduction()) {
+      console.log(`[Phlebo OTP] ${phone} => ${otp}`);
+    }
 
     res.json({
       success: true,
@@ -1534,6 +1537,34 @@ router.get("/phlebo/me", verifyPhlebo, async (req, res) => {
       todayDistanceKm: p.todayDistanceKm || 0,
     },
   });
+});
+
+function anonymizedPhone(id) {
+  const hex = String(id);
+  let n = 0;
+  for (let i = 0; i < hex.length; i += 1) n = (n * 16 + parseInt(hex[i], 16) || 0) % 900000000;
+  return String(8000000000 + n).slice(0, 10);
+}
+
+router.post("/phlebo/me/delete-account", verifyPhlebo, async (req, res) => {
+  try {
+    const p = req.phlebo;
+    p.status = "inactive";
+    p.dutyStatus = "off_duty";
+    p.deletedAt = new Date();
+    p.pushToken = "";
+    p.otp = null;
+    p.otpExpires = null;
+    p.currentLat = null;
+    p.currentLng = null;
+    p.name = "Deleted user";
+    p.phone = anonymizedPhone(p._id);
+    p.employeeId = `DEL-${String(p._id).slice(-10)}`;
+    await p.save();
+    res.json({ success: true, message: "Account deleted" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 router.get("/phlebo/places/suggest", verifyPhlebo, async (req, res) => {

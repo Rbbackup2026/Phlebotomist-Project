@@ -90,6 +90,7 @@ const phlebotomistSchema = new mongoose.Schema(
     ],
     otp: { type: String, default: null },
     otpExpires: { type: Date, default: null },
+    deletedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

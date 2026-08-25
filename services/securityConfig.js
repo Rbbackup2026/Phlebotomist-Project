@@ -51,12 +51,24 @@ function getPlatformSeedKey() {
 }
 
 /**
- * DEMO OTP (123456) only outside production, and only if ALLOW_DEMO_OTP is not "false".
- * Production never accepts hardcoded DEMO OTP — even if someone sends 123456.
+ * DEMO OTP (123456) until SMS is connected.
+ * ALLOW_DEMO_OTP=true  → always on (even live / Play Store)
+ * ALLOW_DEMO_OTP=false → always off
+ * unset: on if no SMS gateway key is configured
  */
 function allowDemoOtp() {
-  if (isProduction()) return false;
-  return String(process.env.ALLOW_DEMO_OTP || "true").toLowerCase() !== "false";
+  const flag = String(process.env.ALLOW_DEMO_OTP || "").toLowerCase();
+  if (flag === "true") return true;
+  if (flag === "false") return false;
+  const hasSms = Boolean(
+    String(
+      process.env.SMS_API_KEY ||
+        process.env.MSG91_AUTH_KEY ||
+        process.env.TWILIO_AUTH_TOKEN ||
+        ""
+    ).trim()
+  );
+  return !hasSms;
 }
 
 const DEMO_OTP = "123456";
