@@ -104,6 +104,10 @@ export const adminApi = {
     const q = qs(params);
     return request(`/admin/catalog${q ? `?${q}` : ""}`);
   },
+  lisPanels: (q = "") =>
+    request(`/admin/lis-panels${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  importLisPanels: (payload) =>
+    request("/admin/lis-panels/import", { method: "POST", body: payload }),
   addTestToOrder: (orderId, payload) =>
     request(`/admin/orders/${orderId}/tests`, { method: "POST", body: payload }),
   removeTestFromOrder: (orderId, productId) =>
@@ -111,6 +115,8 @@ export const adminApi = {
       method: "DELETE",
     }),
   linkedPatients: (orderId) => request(`/admin/orders/${orderId}/linked-patients`),
+  pushOrderToLis: (orderId, payload = {}) =>
+    request(`/admin/orders/${orderId}/push-lis`, { method: "POST", body: payload }),
   rescheduleOrder: (orderId, payload) =>
     request(`/admin/orders/${orderId}/reschedule`, { method: "PUT", body: payload }),
   cancelOrder: (orderId, reason) =>

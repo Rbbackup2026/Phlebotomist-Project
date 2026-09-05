@@ -11,7 +11,10 @@ const {
   assertSecurityConfig,
   getCorsOriginOption,
   isProduction,
+  allowDemoOtp,
 } = require("./services/securityConfig");
+const { isSmsConfigured } = require("./services/sms");
+const { isRazorpayConfigured } = require("./services/razorpay");
 const { protectUploads } = require("./middleware/protectUploads");
 const {
   authLimiter,
@@ -68,6 +71,14 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization", "x-api-key", "x-seed-key"],
   })
 );
+
+// Razorpay HMAC needs the unmodified body — must run before express.json().
+app.post(
+  "/v1/api/webhooks/razorpay",
+  express.raw({ type: "application/json" }),
+  require("./Route/RazorpayWebhook")
+);
+
 app.use(express.json({ limit: "40mb" }));
 app.use(express.urlencoded({ extended: true, limit: "40mb" }));
 
@@ -101,6 +112,7 @@ app.get("/health", (_req, res) => {
     phleboPort: PORT,
     mongo: state === 1 ? "connected" : "disconnected",
     db: mongoose.connection.name || null,
+    sms: isSmsConfigured(),
   });
 });
 
@@ -179,7 +191,7 @@ async function start() {
     console.log("Partner API: POST /v1/api/partner/jobs  (Bearer apiKey)");
     console.log("PhleboApp → http://localhost:3010/v1/api");
     console.log(
-      `Security: NODE_ENV=${process.env.NODE_ENV || "development"} uploads=auth CORS=${isProduction() ? "restricted" : "dev-open"}`
+      `Security: NODE_ENV=${process.env.NODE_ENV || "development"} uploads=auth CORS=${isProduction() ? "restricted" : "dev-open"} SMS=${isSmsConfigured() ? "TextGuru" : "off"} Razorpay=${isRazorpayConfigured() ? "ON" : "off"} DemoOTP=${allowDemoOtp() ? "ON-123456" : "OFF"}`
     );
   });
 }

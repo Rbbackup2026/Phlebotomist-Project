@@ -3,6 +3,8 @@
  * Production mein weak defaults reject; development mein local DX rehti hai.
  */
 
+const { isSmsConfigured } = require("./sms");
+
 const isProduction = () => String(process.env.NODE_ENV || "").toLowerCase() === "production";
 
 const WEAK_JWT_SECRETS = new Set([
@@ -54,19 +56,20 @@ function getPlatformSeedKey() {
  * DEMO OTP (123456) until SMS is connected.
  * ALLOW_DEMO_OTP=true  → always on (even live / Play Store)
  * ALLOW_DEMO_OTP=false → always off
- * unset: on if no SMS gateway key is configured
+ * unset: on if no SMS gateway (TextGuru) is configured
  */
 function allowDemoOtp() {
   const flag = String(process.env.ALLOW_DEMO_OTP || "").toLowerCase();
   if (flag === "true") return true;
   if (flag === "false") return false;
   const hasSms = Boolean(
-    String(
-      process.env.SMS_API_KEY ||
-        process.env.MSG91_AUTH_KEY ||
-        process.env.TWILIO_AUTH_TOKEN ||
-        ""
-    ).trim()
+    isSmsConfigured() ||
+      String(
+        process.env.SMS_API_KEY ||
+          process.env.MSG91_AUTH_KEY ||
+          process.env.TWILIO_AUTH_TOKEN ||
+          ""
+      ).trim()
   );
   return !hasSms;
 }

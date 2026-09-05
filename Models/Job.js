@@ -32,6 +32,8 @@ const jobSchema = new mongoose.Schema(
         category: { type: String, default: "" },
         price: { type: Number, default: 0 },
         quantity: { type: Number },
+        /** LIS itemcode / sku — BookingAPI testCode */
+        sku: { type: String, default: "", trim: true },
         addedByPhlebo: { type: Boolean, default: false },
         addedBySource: { type: String, enum: ["phlebo", "admin"], default: "phlebo" },
         addedAt: { type: Date, default: null },
@@ -39,6 +41,9 @@ const jobSchema = new mongoose.Schema(
     ],
     patientName: { type: String, trim: true, required: true },
     gender: { type: String, default: "", trim: true },
+    /** LIS BookingAPINew requires age or DOB */
+    age: { type: String, default: "", trim: true },
+    dob: { type: String, default: "", trim: true },
     mobileNumber: { type: String, trim: true, default: "" },
     address: { type: String, trim: true, required: true },
     state: { type: String, trim: true, default: "" },
@@ -65,6 +70,14 @@ const jobSchema = new mongoose.Schema(
       ref: "Phlebotomist",
       default: null,
     },
+    /** Razorpay UPI QR / payment-link created at collection time */
+    razorpayQrId: { type: String, default: "", trim: true, index: true },
+    razorpayQrKind: { type: String, enum: ["", "qr", "link"], default: "", trim: true },
+    razorpayQrImageUrl: { type: String, default: "" },
+    razorpayQrStatus: { type: String, default: "", trim: true },
+    razorpayQrExpiresAt: { type: Date, default: null },
+    razorpayQrAmountPaise: { type: Number, default: 0 },
+    razorpayPaymentId: { type: String, default: "", trim: true, index: true },
     /** Cash-in-hand reconciliation: phlebo cash collect karta hai, phir office/lab mein Ops ko hand over karta hai */
     cashSettled: { type: Boolean, default: false },
     cashSettledAt: { type: Date, default: null },
@@ -238,6 +251,23 @@ const jobSchema = new mongoose.Schema(
     createdByPhleboName: { type: String, default: "", trim: true },
     lastWebhookAt: { type: Date, default: null },
     lastWebhookStatus: { type: String, default: "", trim: true },
+    /** LIS BookingAPINew — sample + payment ke baad push */
+    lisPanelId: { type: String, default: "", trim: true },
+    lisCompanyName: { type: String, default: "", trim: true },
+    lisCentreId: { type: String, default: "", trim: true },
+    lisLedgerNo: { type: String, default: "", trim: true, index: true },
+    lisBillId: { type: String, default: "", trim: true },
+    lisSampleId: { type: String, default: "", trim: true },
+    lisReportUrl: { type: String, default: "", trim: true },
+    lisReportPassword: { type: String, default: "", trim: true },
+    lisBookingStatus: {
+      type: String,
+      enum: ["", "pending", "success", "failed", "skipped"],
+      default: "",
+      trim: true,
+    },
+    lisBookingError: { type: String, default: "", trim: true },
+    lisBookedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

@@ -93,8 +93,12 @@ async function notifyPartner(job) {
     console.log(`[webhook] ${client.slug} job ${job._id} → ${job.phleboStatus}`);
     return { ok: true };
   } catch (err) {
-    console.warn("[webhook] failed:", err.message);
-    return { ok: false, error: err.message };
+    const msg = String(err.message || err);
+    if (/fetch failed|econnrefused|enotfound|abort/i.test(msg)) {
+      return { skipped: true, reason: "crm unreachable" };
+    }
+    console.warn("[webhook] failed:", msg);
+    return { ok: false, error: msg };
   }
 }
 

@@ -15,11 +15,155 @@ const emptyForm = {
   servesAllClients: true,
   clientIds: [],
   slotCapacity: 1,
+  lisPanelId: "",
+  lisCentreId: "1",
+  lisCompanyName: "",
 };
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const s = String(reader.result || "");
+      const i = s.indexOf(",");
+      resolve(i >= 0 ? s.slice(i + 1) : s);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function LisClientBox({ form, setForm, fillName, lisTotal, onImported }) {
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      if (!q.trim()) {
+        setHits([]);
+        return;
+      }
+      setSearching(true);
+      try {
+        const res = await adminApi.lisPanels(q.trim());
+        setHits(res.panels || []);
+      } catch {
+        setHits([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  async function onFile(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setImporting(true);
+    setMsg("");
+    try {
+      const fileBase64 = await fileToBase64(file);
+      const res = await adminApi.importLisPanels({ fileBase64, fileName: file.name });
+      setMsg(res.message || `${res.total} LIS clients`);
+      if (onImported) onImported(res);
+    } catch (err) {
+      setMsg(err.message);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function pick(p) {
+    setForm({
+      ...form,
+      lisPanelId: p.panelId,
+      lisCentreId: p.centreId || "1",
+      lisCompanyName: p.name || "",
+      ...(fillName && !form.name ? { name: p.name } : {}),
+    });
+    setQ("");
+    setHits([]);
+  }
+
+  return (
+    <div className="col-span-2 rounded-xl border border-violet-100 bg-violet-50/50 p-3 space-y-2">
+      <div className="text-xs font-semibold text-violet-800">LIS client (PUPMasterData)</div>
+      <p className="text-[11px] text-violet-700">
+        {lisTotal
+          ? `${lisTotal} LIS clients loaded — naam ya Panel_ID search karo (jaise Yogesh / 3191).`
+          : "LIS list load nahi hui — backend restart karo."}
+      </p>
+      <label className="btn-secondary !py-1.5 text-xs cursor-pointer inline-flex">
+        {importing ? "Uploading…" : "Upload PUPMasterData Excel / CSV"}
+        <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onFile} disabled={importing} />
+      </label>
+      {msg ? <div className="text-[11px] text-slate-600">{msg}</div> : null}
+      <input
+        className="input"
+        placeholder="Search LIS name or Panel_ID (e.g. Yogesh / 3191)"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+      {searching ? <div className="text-[11px] text-slate-400">Searching…</div> : null}
+      {hits.length ? (
+        <div className="max-h-40 overflow-y-auto rounded-lg border border-violet-100 bg-white">
+          {hits.map((p) => (
+            <button
+              type="button"
+              key={p.panelId}
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-violet-50"
+              onClick={() => pick(p)}
+            >
+              <span className="font-semibold text-violet-800">{p.panelId}</span>
+              <span className="text-slate-600"> · {p.name}</span>
+            </button>
+          ))}
+        </div>
+      ) : q.trim() && !searching ? (
+        <div className="text-[11px] text-slate-400">Koi match nahi — Excel upload karo ya code manually likho</div>
+      ) : null}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label">Client code (Panel_ID)</label>
+          <input
+            className="input"
+            inputMode="numeric"
+            placeholder="3191"
+            value={form.lisPanelId}
+            onChange={(e) => setForm({ ...form, lisPanelId: e.target.value.replace(/\D/g, "") })}
+          />
+        </div>
+        <div>
+          <label className="label">CentreID</label>
+          <input
+            className="input"
+            placeholder="1"
+            value={form.lisCentreId}
+            onChange={(e) => setForm({ ...form, lisCentreId: e.target.value })}
+          />
+        </div>
+      </div>
+      <div>
+        <label className="label">LIS company name</label>
+        <input
+          className="input"
+          placeholder="HOME COLLECTION - YOGESH"
+          value={form.lisCompanyName}
+          onChange={(e) => setForm({ ...form, lisCompanyName: e.target.value })}
+        />
+      </div>
+    </div>
+  );
+}
 
 export default function Phlebos() {
   const [phlebos, setPhlebos] = useState([]);
   const [clients, setClients] = useState([]);
+  const [lisTotal, setLisTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -53,9 +197,14 @@ export default function Phlebos() {
     setLoading(true);
     setError("");
     try {
-      const [p, c] = await Promise.all([adminApi.phlebos(), adminApi.clients()]);
+      const [p, c, lis] = await Promise.all([
+        adminApi.phlebos(),
+        adminApi.clients(),
+        adminApi.lisPanels().catch(() => ({ panels: [], total: 0 })),
+      ]);
       setPhlebos(p.phlebos || []);
       setClients(c.clients || []);
+      setLisTotal(lis.total || 0);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -68,7 +217,7 @@ export default function Phlebos() {
   }, []);
 
   const filtered = phlebos.filter((p) =>
-    `${p.name} ${p.phone} ${p.employeeId} ${p.zone} ${p.city}`
+    `${p.name} ${p.phone} ${p.employeeId} ${p.zone} ${p.city} ${p.lisPanelId || ""} ${p.lisCompanyName || ""}`
       .toLowerCase()
       .includes(search.toLowerCase())
   );
@@ -108,6 +257,9 @@ export default function Phlebos() {
       incentivePerJob: p.incentivePerJob ?? 50,
       targetBonus: p.targetBonus ?? 200,
       slotCapacity: p.slotCapacity ?? 1,
+      lisPanelId: p.lisPanelId || "",
+      lisCentreId: p.lisCentreId || "1",
+      lisCompanyName: p.lisCompanyName || "",
     });
     setEditStats(null);
     setEditCash(null);
@@ -302,6 +454,14 @@ export default function Phlebos() {
                       <td className="px-4 py-3">
                         <div className="font-medium text-slate-800">{p.name}</div>
                         <div className="text-xs text-slate-400">{p.employeeId}</div>
+                        {p.lisPanelId ? (
+                          <div className="text-[11px] text-violet-600 mt-0.5">
+                            LIS {p.lisPanelId}
+                            {p.lisCompanyName ? ` · ${p.lisCompanyName}` : ""}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-amber-500 mt-0.5">LIS client code missing</div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-slate-600">{p.phone}</td>
                       <td className="px-4 py-3 text-slate-600">
@@ -435,6 +595,13 @@ export default function Phlebos() {
                 onChange={(e) => setAddForm({ ...addForm, city: e.target.value })}
               />
             </div>
+            <LisClientBox
+              form={addForm}
+              setForm={setAddForm}
+              fillName
+              lisTotal={lisTotal}
+              onImported={(res) => setLisTotal(res.total || lisTotal)}
+            />
             <div>
               <label className="label">Slot capacity</label>
               <input
@@ -718,6 +885,12 @@ export default function Phlebos() {
                   onChange={(e) => setEditForm({ ...editForm, employeeId: e.target.value })}
                 />
               </div>
+              <LisClientBox
+                form={editForm}
+                setForm={setEditForm}
+                lisTotal={lisTotal}
+                onImported={(res) => setLisTotal(res.total || lisTotal)}
+              />
               <div>
                 <label className="label">Zone</label>
                 <input

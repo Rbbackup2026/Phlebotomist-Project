@@ -31,6 +31,10 @@ function toYmd(raw) {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 }
 
+function lisReallySaved(o) {
+  return String(o?.lisBookingStatus || "") === "success" && !!String(o?.lisLedgerNo || "").trim();
+}
+
 function collectionsHref(slotDate, opts = {}) {
   const params = new URLSearchParams({ date: toYmd(slotDate) });
   if (opts.focusUnassigned) params.set("focus", "unassigned");
@@ -42,6 +46,7 @@ const emptyNewOrder = {
   patientName: "",
   mobileNumber: "",
   gender: "",
+  age: "",
   address: "",
   lat: null,
   lng: null,
@@ -140,6 +145,8 @@ export default function Orders() {
   const [newOrderError, setNewOrderError] = useState("");
 
   const [addTestSaving, setAddTestSaving] = useState(false);
+  const [lisPushing, setLisPushing] = useState(false);
+  const [lisRetryAge, setLisRetryAge] = useState("");
 
   async function load(pageArg = page) {
     setLoading(true);
@@ -358,6 +365,10 @@ export default function Orders() {
   }
 
   useEffect(() => {
+    setLisRetryAge(detailFor?.age ? String(detailFor.age) : "");
+  }, [detailFor?._id, detailFor?.age]);
+
+  useEffect(() => {
     if (!detailFor?._id) {
       setLinkedPatients({ source: null, walkIns: [], siblings: [] });
       return;
@@ -408,6 +419,27 @@ export default function Orders() {
       alert(e.message);
     } finally {
       setAddTestSaving(false);
+    }
+  }
+
+  async function pushDetailToLis() {
+    if (!detailFor) return;
+    if (!lisRetryAge && !detailFor.age) {
+      alert("Patient age LIS ke liye zaroori hai");
+      return;
+    }
+    setLisPushing(true);
+    try {
+      const res = await adminApi.pushOrderToLis(detailFor._id, {
+        age: lisRetryAge,
+      });
+      setDetailFor(res.job);
+      await load();
+    } catch (e) {
+      alert(e.message);
+      if (e.data?.job) setDetailFor(e.data.job);
+    } finally {
+      setLisPushing(false);
     }
   }
 
@@ -924,6 +956,7 @@ export default function Orders() {
             <div className="grid grid-cols-2 gap-3">
               <Field label="Pickup ID" value={detailFor.pickupId} />
               <Field label="Patient" value={detailFor.patientName} />
+              <Field label="Age" value={detailFor.age || lisRetryAge || "—"} />
               <Field label="Mobile" value={detailFor.mobileNumber} />
               <Field label="Source" value={displaySource(detailFor)} />
               <Field label="External order ID" value={detailFor.externalOrderId} />
@@ -946,6 +979,23 @@ export default function Orders() {
                 </span>
               )}
               <Badge>{detailFor.paymentStatus}</Badge>
+              {lisReallySaved(detailFor) ? (
+                <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 px-2.5 py-0.5 text-xs font-medium">
+                  LIS {detailFor.lisLedgerNo}
+                </span>
+              ) : detailFor.lisBookingStatus === "failed" ? (
+                <span className="inline-flex items-center rounded-full bg-rose-50 text-rose-700 px-2.5 py-0.5 text-xs font-medium">
+                  LIS failed
+                </span>
+              ) : detailFor.lisBookingStatus === "skipped" ? (
+                <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-700 px-2.5 py-0.5 text-xs font-medium">
+                  LIS skipped
+                </span>
+              ) : detailFor.lisBookingStatus === "success" ? (
+                <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-700 px-2.5 py-0.5 text-xs font-medium">
+                  LIS Lab No missing
+                </span>
+              ) : null}
               {detailFor.isRedraw ? (
                 <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-700 px-2.5 py-0.5 text-xs font-medium">
                   Redraw{detailFor.redrawReason ? `: ${detailFor.redrawReason}` : ""}
@@ -956,6 +1006,79 @@ export default function Orders() {
                   Has a redraw job
                 </span>
               ) : null}
+            </div>
+
+            <div className="rounded-xl border border-violet-100 bg-violet-50/50 px-3 py-3 space-y-2">
+              <div className="text-xs font-semibold text-violet-800 uppercase tracking-wide">
+                LIS booking
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Client code" value={detailFor.lisPanelId || "—"} />
+                <Field label="LIS name" value={detailFor.lisCompanyName || "—"} />
+                <Field
+                  label="Lab No (MGUR)"
+                  value={detailFor.lisLedgerNo || "—"}
+                />
+                <Field
+                  label="Status"
+                  value={
+                    lisReallySaved(detailFor)
+                      ? "saved in LIS"
+                      : detailFor.lisBookingStatus === "success"
+                        ? "not in Patient Detail"
+                        : detailFor.lisBookingStatus || "not sent"
+                  }
+                />
+              </div>
+              {detailFor.lisBookingError ? (
+                <div className="text-xs text-rose-700">{detailFor.lisBookingError}</div>
+              ) : null}
+              {detailFor.phleboStatus === "Sample Collected" ||
+              detailFor.phleboStatus === "Handed Off" ? (
+                <div>
+                  <label className="label">Patient age (LIS)</label>
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    maxLength={3}
+                    placeholder="Age in years"
+                    value={lisRetryAge}
+                    onChange={(e) =>
+                      setLisRetryAge(e.target.value.replace(/\D/g, "").slice(0, 3))
+                    }
+                    disabled={lisReallySaved(detailFor)}
+                  />
+                </div>
+              ) : null}
+              {detailFor.lisReportUrl ? (
+                <a
+                  href={detailFor.lisReportUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-violet-700 underline"
+                >
+                  Open LIS report
+                </a>
+              ) : null}
+              {detailFor.phleboStatus === "Sample Collected" ||
+              detailFor.phleboStatus === "Handed Off" ? (
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  disabled={lisPushing || lisReallySaved(detailFor)}
+                  onClick={pushDetailToLis}
+                >
+                  {lisPushing
+                    ? "Sending…"
+                    : lisReallySaved(detailFor)
+                    ? "Saved in LIS"
+                    : "Push to LIS"}
+                </button>
+              ) : (
+                <div className="text-[11px] text-slate-500">
+                  Sample collect + payment ke baad auto LIS mein save hoga
+                </div>
+              )}
             </div>
 
             {/* Same-address walk-in patients (phlebo “Add patient at this address”) */}
@@ -1359,6 +1482,22 @@ export default function Orders() {
                   setNewOrder({
                     ...newOrder,
                     mobileNumber: e.target.value.replace(/\D/g, "").slice(0, 10),
+                  })
+                }
+              />
+            </div>
+            <div>
+              <label className="label">Age (years)</label>
+              <input
+                className="input"
+                inputMode="numeric"
+                maxLength={3}
+                placeholder="LIS ke liye zaroori"
+                value={newOrder.age}
+                onChange={(e) =>
+                  setNewOrder({
+                    ...newOrder,
+                    age: e.target.value.replace(/\D/g, "").slice(0, 3),
                   })
                 }
               />

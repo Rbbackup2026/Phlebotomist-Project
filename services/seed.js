@@ -2,6 +2,7 @@ const bcrypt = require("bcrypt");
 const Client = require("../Models/Client");
 const OpsUser = require("../Models/OpsUser");
 const InventoryItem = require("../Models/InventoryItem");
+const { seedLisPanelsIfEmpty } = require("./lisPanels");
 
 const DEFAULT_KIT_ITEMS = [
   { sku: "EDTA-PURPLE", name: "EDTA Violet Tube", unit: "pcs", centralStock: 200, reorderThreshold: 30 },
@@ -24,12 +25,16 @@ async function seedInventory() {
  * Boot seed: Wello client + default ops admin (idempotent).
  * Env se API key / webhook fix kar sakte ho taaki Wello .env match kare.
  */
+function welloWebhookUrl() {
+  const raw = String(process.env.WELLO_WEBHOOK_URL || "").trim();
+  if (!raw || /^(false|0|off|none|disabled)$/i.test(raw)) return "";
+  return raw;
+}
+
 async function seedPlatform() {
   const slug = (process.env.WELLO_CLIENT_SLUG || "wello").toLowerCase();
   const name = process.env.WELLO_CLIENT_NAME || "Wello";
-  const webhookUrl =
-    process.env.WELLO_WEBHOOK_URL ||
-    "http://localhost:3000/v1/api/phlebo/webhook";
+  const webhookUrl = welloWebhookUrl();
   const fixedApiKey = process.env.WELLO_API_KEY || "";
   const fixedWebhookSecret = process.env.WELLO_WEBHOOK_SECRET || "";
   // Prefer LIS rate-list URL when set; otherwise legacy Wello catalog base
@@ -54,7 +59,7 @@ async function seedPlatform() {
     console.log(`[seed] Client created: ${client.slug}`);
   } else {
     let dirty = false;
-    if (webhookUrl && client.webhookUrl !== webhookUrl) {
+    if (client.webhookUrl !== webhookUrl) {
       client.webhookUrl = webhookUrl;
       dirty = true;
     }
@@ -111,6 +116,10 @@ async function seedPlatform() {
   }
 
   await seedInventory();
+  const lisCount = await seedLisPanelsIfEmpty();
+  if (lisCount) {
+    console.log(`  LIS panels: ${lisCount}`);
+  }
 
   const superadmin = await OpsUser.findOne({ role: "superadmin" }).select("email");
 

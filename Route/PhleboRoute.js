@@ -11,6 +11,14 @@ const Client = require("../Models/Client");
 const InventoryItem = require("../Models/InventoryItem");
 const KitAssignment = require("../Models/KitAssignment");
 const { saveAndNotify } = require("../services/webhook");
+const { scheduleLisBooking, pushJobToLis, applyAgeFields } = require("../services/lisBooking");
+const onlinePayment = require("../services/onlinePayment");
+const {
+  seedLisPanelsIfEmpty,
+  upsertPanels,
+  searchPanels,
+  rowsFromUpload,
+} = require("../services/lisPanels");
 const { fetchTestCatalog, fetchTestById } = require("../services/catalog");
 const { geocodeAndAutoAssign, tryAutoAssignPendingJobs } = require("../services/autoAssign");
 const { suggestPlaces, resolvePlace, coordsForAddress } = require("../services/places");
@@ -33,6 +41,7 @@ const {
   isDemoOtp,
   isProduction,
 } = require("../services/securityConfig");
+const { deliverOtp, toTenDigitMobile } = require("../services/sms");
 
 const ADD_TEST_STATUSES = ["Arrived", "OTP Verified", "Consent Done", "Sample Collected"];
 // Geofence audit radius for arrival (soft flag only — never blocks arrival, geocoding
@@ -102,6 +111,12 @@ function ymd(d) {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function ageFieldsFromBody(b) {
+  const t = { age: "", dob: "" };
+  applyAgeFields(t, b || {});
+  return { age: t.age || "", dob: t.dob || "" };
 }
 
 function recalcJobTotals(job) {
@@ -212,6 +227,8 @@ const formatJob = (order, { mask = false } = {}) => {
     patientName: mask ? maskName(o.patientName) : o.patientName,
     mobileNumber: mask ? maskPhone(o.mobileNumber) : o.mobileNumber,
     gender: o.gender,
+    age: o.age || "",
+    dob: o.dob || "",
     address: o.address,
     city: o.city,
     area: o.area,
@@ -285,6 +302,7 @@ const formatJob = (order, { mask = false } = {}) => {
     createdAt: o.createdAt,
     paymentCollectedAt: o.paymentCollectedAt,
     paymentCollectedMethod: o.paymentCollectedMethod,
+    onlinePayment: onlinePayment.qrPublic(o),
     rating: o.rating && o.rating.stars ? o.rating : null,
     rescheduleRequested: !!o.rescheduleRequested,
     isRedraw: !!o.isRedraw,
@@ -294,8 +312,29 @@ const formatJob = (order, { mask = false } = {}) => {
     createdBySource: o.createdBySource || "partner",
     createdByPhlebo: o.createdByPhlebo || null,
     createdByPhleboName: o.createdByPhleboName || "",
+    lisPanelId: o.lisPanelId || "",
+    lisCompanyName: o.lisCompanyName || "",
+    lisLedgerNo: o.lisLedgerNo || "",
+    lisBookingStatus: o.lisBookingStatus || "",
+    lisBookingError: o.lisBookingError || "",
+    lisReportUrl: o.lisReportUrl || "",
   };
 };
+
+async function assertLisPanelFree(lisPanelId, exceptId) {
+  const code = String(lisPanelId || "").trim();
+  if (!code) return;
+  const filter = { lisPanelId: code };
+  if (exceptId) filter._id = { $ne: exceptId };
+  const clash = await Phlebotomist.findOne(filter).select("name phone lisPanelId");
+  if (clash) {
+    const err = new Error(
+      `LIS client code ${code} already on ${clash.name} (${clash.phone})`
+    );
+    err.status = 400;
+    throw err;
+  }
+}
 
 // ─── Ops: list jobs (Phlebo own DB; multi-website via clientId) ──────────────
 
@@ -594,6 +633,7 @@ router.post("/admin/orders", verifyToken, requireRole("admin"), async (req, res)
           category: i.category || "",
           price: Number(i.price) || 0,
           quantity: Math.max(1, Number(i.quantity) || 1),
+          sku: String(i.sku || i.testCode || i.productId || "").trim(),
         }))
       : [];
     const itemsTotal = items.reduce((s, i) => s + i.price * i.quantity, 0);
@@ -615,6 +655,7 @@ router.post("/admin/orders", verifyToken, requireRole("admin"), async (req, res)
       items,
       patientName: String(b.patientName).trim(),
       gender: b.gender || "",
+      ...ageFieldsFromBody(b),
       mobileNumber: b.mobileNumber || "",
       address: String(b.address).trim(),
       state: b.state || "",
@@ -716,6 +757,7 @@ router.post("/admin/orders/:id/tests", verifyToken, requireRole("admin"), async 
         name: String(name).trim(),
         price: Number(price) || 0,
         category: category || "Custom",
+        sku: "",
       };
     } else {
       return res.status(400).json({ success: false, message: "productId ya (name + price) chahiye" });
@@ -734,6 +776,7 @@ router.post("/admin/orders/:id/tests", verifyToken, requireRole("admin"), async 
       existing.quantity = (existing.quantity || 1) + qty;
       existing.price = catalogItem.price;
       existing.name = catalogItem.name;
+      existing.sku = catalogItem.sku || existing.sku || catalogItem.productId;
       existing.addedByPhlebo = true;
       existing.addedBySource = "admin";
       existing.addedAt = new Date();
@@ -744,6 +787,7 @@ router.post("/admin/orders/:id/tests", verifyToken, requireRole("admin"), async 
         category: catalogItem.category,
         price: catalogItem.price,
         quantity: qty,
+        sku: catalogItem.sku || catalogItem.productId || "",
         addedByPhlebo: true,
         addedBySource: "admin",
         addedAt: new Date(),
@@ -763,6 +807,37 @@ router.post("/admin/orders/:id/tests", verifyToken, requireRole("admin"), async 
 
     await saveAndNotify(order);
     res.json({ success: true, message: `${catalogItem.name} add ho gaya`, job: order });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/admin/orders/:id/push-lis", verifyToken, requireRole("superadmin", "admin"), async (req, res) => {
+  try {
+    const order = await Job.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+    if (req.user.role === "admin" && order.city !== req.user.city) {
+      return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
+    }
+    applyAgeFields(order, req.body);
+    await order.save();
+    const result = await pushJobToLis(order._id, { force: true });
+    const fresh = await Job.findById(order._id);
+    if (result.skipped && result.reason === "not collected+paid") {
+      return res.status(400).json({
+        success: false,
+        message: "Sample collect + payment ke baad hi LIS push hota hai",
+        job: fresh,
+      });
+    }
+    if (result.ok === false) {
+      return res.status(400).json({
+        success: false,
+        message: result.error || "LIS push failed",
+        job: fresh,
+      });
+    }
+    res.json({ success: true, result, job: fresh });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -896,7 +971,7 @@ router.get("/admin/added-tests", verifyToken, attachScope, async (req, res) => {
 
 // ─── Admin: create / list phlebos ───────────────────────────────────────────
 
-router.post("/admin/phlebos", verifyToken, requireRole("admin"), async (req, res) => {
+router.post("/admin/phlebos", verifyToken, requireRole("superadmin", "admin"), async (req, res) => {
   try {
     const {
       name,
@@ -908,6 +983,9 @@ router.post("/admin/phlebos", verifyToken, requireRole("admin"), async (req, res
       servesAllClients,
       clientIds,
       slotCapacity,
+      lisPanelId,
+      lisCentreId,
+      lisCompanyName,
     } = req.body;
     if (!name || !phone) {
       return res.status(400).json({ success: false, message: "Name and phone required" });
@@ -922,11 +1000,13 @@ router.post("/admin/phlebos", verifyToken, requireRole("admin"), async (req, res
       return res.status(400).json({ success: false, message: "Phone already registered" });
     }
     const resolvedEmployeeId = employeeId || `PHL-${Date.now().toString().slice(-6)}`;
+    const resolvedLisPanelId = String(lisPanelId || "").trim();
     try {
       await assertFieldIdentityFree({
         employeeId: resolvedEmployeeId,
         phone: String(phone).trim(),
       });
+      await assertLisPanelFree(resolvedLisPanelId);
     } catch (idErr) {
       return res.status(idErr.status || 400).json({ success: false, message: idErr.message });
     }
@@ -943,8 +1023,49 @@ router.post("/admin/phlebos", verifyToken, requireRole("admin"), async (req, res
       slotCapacity: Number.isFinite(Number(slotCapacity)) && Number(slotCapacity) > 0
         ? Number(slotCapacity)
         : 1,
+      lisPanelId: resolvedLisPanelId,
+      lisCentreId: String(lisCentreId || "1").trim() || "1",
+      lisCompanyName: String(lisCompanyName || "").trim(),
     });
-    res.status(201).json({ success: true, phlebo });
+    const out = phlebo.toObject();
+    delete out.passwordHash;
+    delete out.otp;
+    res.status(201).json({ success: true, phlebo: out });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get("/admin/lis-panels", verifyToken, requireRole("superadmin", "admin"), async (req, res) => {
+  try {
+    await seedLisPanelsIfEmpty();
+    const result = await searchPanels(req.query.q, req.query.limit);
+    res.json({
+      success: true,
+      panels: result.panels,
+      total: result.total,
+      matched: result.matched,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/admin/lis-panels/import", verifyToken, requireRole("superadmin", "admin"), async (req, res) => {
+  try {
+    const rows = rowsFromUpload(req.body || {});
+    if (!rows.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Excel/CSV mein rows nahi mili — Panel_ID aur Company_Name columns chahiye",
+      });
+    }
+    const result = await upsertPanels(rows);
+    res.json({
+      success: true,
+      message: `${result.upserted} LIS clients save ho gaye`,
+      ...result,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1381,6 +1502,8 @@ router.put(
           items: [],
           patientName: order.patientName,
           gender: order.gender,
+          age: order.age || "",
+          dob: order.dob || "",
           mobileNumber: order.mobileNumber,
           address: order.address,
           state: order.state,
@@ -1453,6 +1576,17 @@ router.post("/phlebo/auth/otp/send", async (req, res) => {
     phlebo.otp = otp;
     phlebo.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
     await phlebo.save();
+
+    try {
+      await deliverOtp(phone, otp, "login", { name: phlebo.name });
+    } catch (smsErr) {
+      return res.status(smsErr.status || 502).json({
+        success: false,
+        message: smsErr.message
+          ? `Could not send OTP SMS: ${String(smsErr.message).slice(0, 180)}`
+          : "Could not send OTP SMS. Try again.",
+      });
+    }
 
     if (!isProduction()) {
       console.log(`[Phlebo OTP] ${phone} => ${otp}`);
@@ -2031,6 +2165,7 @@ router.post("/phlebo/jobs/create-direct", verifyPhlebo, async (req, res) => {
             category: i.category || "Custom",
             price: Number(i.price) || 0,
             quantity: Math.max(1, Number(i.quantity) || 1),
+            sku: String(i.sku || i.testCode || i.productId || "").trim(),
             addedByPhlebo: true,
             addedBySource: "phlebo",
             addedAt: new Date(),
@@ -2060,6 +2195,7 @@ router.post("/phlebo/jobs/create-direct", verifyPhlebo, async (req, res) => {
       items,
       patientName,
       gender: b.gender || "",
+      ...ageFieldsFromBody(b),
       mobileNumber: String(b.mobileNumber || "").trim(),
       address,
       state: b.state || "",
@@ -2238,6 +2374,7 @@ router.post("/phlebo/jobs/:id/tests", verifyPhlebo, async (req, res) => {
       existing.quantity = (existing.quantity || 1) + qty;
       existing.price = catalogItem.price;
       existing.name = catalogItem.name;
+      existing.sku = catalogItem.sku || existing.sku || catalogItem.productId;
       existing.addedByPhlebo = true;
       existing.addedAt = new Date();
     } else {
@@ -2247,6 +2384,7 @@ router.post("/phlebo/jobs/:id/tests", verifyPhlebo, async (req, res) => {
         category: catalogItem.category,
         price: catalogItem.price,
         quantity: qty,
+        sku: catalogItem.sku || catalogItem.productId || "",
         addedByPhlebo: true,
         addedAt: new Date(),
       });
@@ -2390,6 +2528,7 @@ router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
       category: i.category || "",
       price: Number(i.price) || 0,
       quantity: Math.max(1, Number(i.quantity) || 1),
+      sku: String(i.sku || i.testCode || i.productId || "").trim(),
       addedByPhlebo: true,
       addedAt: new Date(),
     }));
@@ -2422,6 +2561,7 @@ router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
       patientName: String(patientName).trim(),
       mobileNumber: String(mobileNumber || "").trim(),
       gender: gender || "",
+      ...ageFieldsFromBody(req.body),
       specialInstructions: specialInstructions || "",
       items: cleanItems,
       amount,
@@ -2723,6 +2863,14 @@ router.post("/phlebo/jobs/:id/otp/send", verifyPhlebo, async (req, res) => {
       return res.status(400).json({ success: false, message: "Mark arrived first" });
     }
 
+    const patientPhone = toTenDigitMobile(order.mobileNumber);
+    if (!/^\d{10}$/.test(patientPhone)) {
+      return res.status(400).json({
+        success: false,
+        message: "Patient mobile number missing or invalid",
+      });
+    }
+
     const otp =
       allowDemoOtp()
         ? DEMO_OTP
@@ -2732,7 +2880,18 @@ router.post("/phlebo/jobs/:id/otp/send", verifyPhlebo, async (req, res) => {
     order.patientOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
     await saveAndNotify(order);
 
-    console.log(`[Patient OTP] order ${order._id} phone ${order.mobileNumber} => ${otp}`);
+    try {
+      await deliverOtp(patientPhone, otp, "patient", { name: order.patientName });
+    } catch (smsErr) {
+      return res.status(smsErr.status || 502).json({
+        success: false,
+        message: "Could not send OTP SMS to patient. Try again.",
+      });
+    }
+
+    if (!isProduction()) {
+      console.log(`[Patient OTP] order ${order._id} phone ${patientPhone} => ${otp}`);
+    }
 
     res.json({
       success: true,
@@ -3259,6 +3418,20 @@ router.put("/phlebo/jobs/:id/payment", verifyPhlebo, async (req, res) => {
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
 
+    // UPI/online must go through Razorpay QR — do not allow self-declared Paid
+    if (/^(upi|online)$/i.test(method)) {
+      return res.status(400).json({
+        success: false,
+        message: "Open the UPI QR and wait for the customer to pay. Use Cash if they pay in cash.",
+      });
+    }
+    if (!/^cash$/i.test(method)) {
+      return res.status(400).json({
+        success: false,
+        message: "Use Cash, or collect online via UPI QR",
+      });
+    }
+
     // Collect payment after sample is collected — not after handover (read-only)
     const allowed = ["Sample Collected"];
     if (!allowed.includes(order.phleboStatus)) {
@@ -3271,14 +3444,72 @@ router.put("/phlebo/jobs/:id/payment", verifyPhlebo, async (req, res) => {
       });
     }
 
+    if (String(order.paymentStatus || "") === "Paid") {
+      return res.json({ success: true, job: formatJob(order) });
+    }
+
+    applyAgeFields(order, req.body);
+    await onlinePayment.cancelQr(order).catch(() => {});
     order.paymentStatus = "Paid";
     order.paymentCollectedAt = new Date();
-    order.paymentCollectedMethod = method;
+    order.paymentCollectedMethod = "Cash";
     order.paymentCollectedBy = req.phlebo._id;
     await saveAndNotify(order);
-    res.json({ success: true, job: formatJob(order) });
+    await pushJobToLis(order._id);
+    const fresh = await Job.findById(order._id);
+    res.json({ success: true, job: formatJob(fresh) });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.status || 500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/jobs/:id/payment/qr", verifyPhlebo, async (req, res) => {
+  try {
+    const order = await Job.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    const force = req.body && req.body.force === true;
+    const job = await onlinePayment.openQr(order, { force });
+    const fresh = await Job.findById(job._id);
+    res.json({
+      success: true,
+      job: formatJob(fresh),
+      qr: onlinePayment.qrPublic(fresh, { includeImage: true }),
+    });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message });
+  }
+});
+
+router.get("/phlebo/jobs/:id/payment/status", verifyPhlebo, async (req, res) => {
+  try {
+    const order = await Job.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    const job = await onlinePayment.syncIfPending(order);
+    const fresh = await Job.findById(job._id);
+    res.json({ success: true, job: formatJob(fresh) });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/jobs/:id/payment/qr/cancel", verifyPhlebo, async (req, res) => {
+  try {
+    const order = await Job.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    const job = await onlinePayment.cancelQr(order);
+    const fresh = await Job.findById(job._id);
+    res.json({ success: true, job: formatJob(fresh) });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -3332,17 +3563,19 @@ router.put("/phlebo/jobs/:id/complete", verifyPhlebo, async (req, res) => {
       });
     }
 
+    applyAgeFields(order, req.body);
     order.phleboStatus = "Sample Collected";
     order.status = "Sample Collected";
     order.collectedAt = new Date();
     await saveAndNotify(order);
-
-    // Job-stats dashboard ke liye kuch alag se karne ki zaroorat nahi — GET
-    // /phlebo/job-stats order.collectedAt se hi seedha compute karta hai.
-
+    const due = Number(order.totalAmount || order.amount || 0);
+    if (due <= 0 || String(order.paymentStatus || "") === "Paid") {
+      await pushJobToLis(order._id);
+    }
+    const fresh = await Job.findById(order._id);
     res.json({
       success: true,
-      job: formatJob(order),
+      job: formatJob(fresh),
       message: "Sample collected — patient will be notified",
     });
   } catch (error) {
@@ -3719,7 +3952,7 @@ router.get("/admin/phlebos/:id/route-plan", verifyToken, requireRole("superadmin
   }
 });
 
-router.put("/admin/phlebos/:id", verifyToken, requireRole("admin"), async (req, res) => {
+router.put("/admin/phlebos/:id", verifyToken, requireRole("superadmin", "admin"), async (req, res) => {
   try {
     const {
       name,
@@ -3734,6 +3967,9 @@ router.put("/admin/phlebos/:id", verifyToken, requireRole("admin"), async (req, 
       incentivePerJob,
       targetBonus,
       slotCapacity,
+      lisPanelId,
+      lisCentreId,
+      lisCompanyName,
     } = req.body;
     const phlebo = await Phlebotomist.findById(req.params.id);
     if (!phlebo) return res.status(404).json({ success: false, message: "Phlebo not found" });
@@ -3746,6 +3982,17 @@ router.put("/admin/phlebos/:id", verifyToken, requireRole("admin"), async (req, 
     // City Admin apne phlebo ko doosre city mein shift nahi kar sakta (sirf superadmin).
     if (city !== undefined && req.user.role === "superadmin") phlebo.city = String(city).trim();
     if (employeeId !== undefined) phlebo.employeeId = String(employeeId).trim();
+    if (lisPanelId !== undefined) {
+      const code = String(lisPanelId).trim();
+      try {
+        await assertLisPanelFree(code, phlebo._id);
+      } catch (idErr) {
+        return res.status(idErr.status || 400).json({ success: false, message: idErr.message });
+      }
+      phlebo.lisPanelId = code;
+    }
+    if (lisCentreId !== undefined) phlebo.lisCentreId = String(lisCentreId).trim() || "1";
+    if (lisCompanyName !== undefined) phlebo.lisCompanyName = String(lisCompanyName).trim();
     if (servesAllClients !== undefined) phlebo.servesAllClients = !!servesAllClients;
     if (Array.isArray(clientIds)) phlebo.clientIds = clientIds;
     if (dailyTarget !== undefined) {
@@ -3794,7 +4041,10 @@ router.put("/admin/phlebos/:id", verifyToken, requireRole("admin"), async (req, 
       phlebo.status = status;
     }
     await phlebo.save();
-    res.json({ success: true, phlebo });
+    const out = phlebo.toObject();
+    delete out.passwordHash;
+    delete out.otp;
+    res.json({ success: true, phlebo: out });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
