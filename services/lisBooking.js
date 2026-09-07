@@ -86,20 +86,22 @@ function lisPaymentType(method) {
 }
 
 /**
- * LIS BookingAPINew only inserts a bill when paymentList has paymentAmount > 0.
- * CREDIT / amount 0 returns HTTP 200 {} and nothing appears in Patient Detail.
- * Cash and UPI both send a real receipt so the row saves (Paid Amt = bill, Due = 0).
+ * Cash at door → LIS Due (Fully UnPaid): paymentType CASH, paymentAmount 0.
+ * UPI/online → LIS Paid: same paymentType with paymentAmount = total.
+ * Proven on Receipt Reprint: CASH + amount 0 → Paid 0 / Bal = net; CASH + amount → Paid.
  */
 function lisBillSettlement(job) {
   const total = Number(job.totalAmount || job.amount || 0);
   const payType = lisPaymentType(job.paymentCollectedMethod || job.paymentMethod);
+  const online = payType !== "CASH";
+  const paidAmt = online ? total : 0;
   return {
     paymentType: payType,
     advance: "0",
     paymentList: [
       {
         paymentType: payType,
-        paymentAmount: total,
+        paymentAmount: paidAmt,
         issueBank: "",
         chequeNo: "",
       },
