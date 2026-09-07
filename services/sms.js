@@ -12,7 +12,7 @@ const DEFAULT_API_URL = "https://www.textguru.in/api/v22.0/";
 const FALLBACK_API_URL = "https://www.textguru.in/imobile/api.php";
 // Same DLT text as mdrcindia.com login (that SMS actually delivers).
 const DEFAULT_OTP_MESSAGE =
-  "Dear {name}, Welcome to MODERN! {otp} is your One Time Password (OTP) for login into your account. www.mdrcindia.com.";
+  "Dear {name}, Welcome to MDRC Phlebo! {otp} is your One Time Password (OTP) for login into your account. www.mdrcindia.com.";
 const DEFAULT_PATIENT_MESSAGE = DEFAULT_OTP_MESSAGE;
 
 function env(name, fallback = "") {
