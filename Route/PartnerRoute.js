@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const Client = require("../Models/Client");
-const Job = require("../Models/Job");
+const Order = require("../Models/Order");
 const { geocodeAndAutoAssign } = require("../services/autoAssign");
 const { generatePickupId, generateTrackingToken } = require("../services/pickupId");
 
@@ -60,7 +60,7 @@ router.post("/partner/jobs", verifyPartner, async (req, res) => {
       });
     }
 
-    const existing = await Job.findOne({
+    const existing = await Order.findOne({
       clientId: req.client._id,
       externalOrderId,
     });
@@ -82,7 +82,7 @@ router.post("/partner/jobs", verifyPartner, async (req, res) => {
       generateTrackingToken(),
     ]);
 
-    const job = await Job.create({
+    const job = await Order.create({
       clientId: req.client._id,
       clientSlug: req.client.slug,
       clientName: req.client.name,
@@ -122,7 +122,7 @@ router.post("/partner/jobs", verifyPartner, async (req, res) => {
     });
   } catch (error) {
     if (error.code === 11000) {
-      const again = await Job.findOne({
+      const again = await Order.findOne({
         clientId: req.client._id,
         externalOrderId: String(req.body.externalOrderId || req.body.orderId || "").trim(),
       });
@@ -141,7 +141,7 @@ router.post("/partner/jobs", verifyPartner, async (req, res) => {
 /** GET /partner/jobs/:externalOrderId — website apna order status check kare */
 router.get("/partner/jobs/:externalOrderId", verifyPartner, async (req, res) => {
   try {
-    const job = await Job.findOne({
+    const job = await Order.findOne({
       clientId: req.client._id,
       externalOrderId: String(req.params.externalOrderId).trim(),
     });

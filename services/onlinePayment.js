@@ -1,4 +1,4 @@
-const Job = require("../Models/Job");
+const Order = require("../Models/Order");
 const { saveAndNotify } = require("./webhook");
 const { pushJobToLis } = require("./lisBooking");
 const razorpay = require("./razorpay");
@@ -68,7 +68,7 @@ async function markJobPaidUpi(job, { paymentId, collectedBy } = {}) {
   if (paymentId) job.razorpayPaymentId = String(paymentId);
   await saveAndNotify(job);
   await pushJobToLis(job._id);
-  return Job.findById(job._id);
+  return Order.findById(job._id);
 }
 
 async function closeRemote(job) {
@@ -309,10 +309,10 @@ async function handleWebhookEvent(event) {
   if (!isPaidEvent(info)) return { ignored: true, event: info.eventName };
 
   let job = null;
-  if (info.jobId) job = await Job.findById(info.jobId);
-  if (!job && info.qrId) job = await Job.findOne({ razorpayQrId: info.qrId });
-  if (!job && info.linkId) job = await Job.findOne({ razorpayQrId: info.linkId });
-  if (!job && info.paymentId) job = await Job.findOne({ razorpayPaymentId: info.paymentId });
+  if (info.jobId) job = await Order.findById(info.jobId);
+  if (!job && info.qrId) job = await Order.findOne({ razorpayQrId: info.qrId });
+  if (!job && info.linkId) job = await Order.findOne({ razorpayQrId: info.linkId });
+  if (!job && info.paymentId) job = await Order.findOne({ razorpayPaymentId: info.paymentId });
   if (!job) return { ignored: true, reason: "job not found" };
 
   if (String(job.paymentStatus) === "Paid") {

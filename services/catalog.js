@@ -2,7 +2,7 @@
  * Test catalog fetch — LIS rate-list API (primary) ya legacy Wello GET /get_product.
  * Agar remote catalog down ho to past jobs se fallback list.
  */
-const Job = require("../Models/Job");
+const Order = require("../Models/Order");
 
 const DEFAULT_LIS_URL = (process.env.LIS_CATALOG_API_URL || "").replace(/\/$/, "");
 const DEFAULT_WELLO_BASE = (
@@ -233,7 +233,7 @@ async function fallbackCatalogFromJobs(client, { city, search } = {}) {
   const cityName = String(city || "").trim();
   if (cityName) filter.city = cityName;
 
-  const jobs = await Job.find(filter)
+  const jobs = await Order.find(filter)
     .sort({ createdAt: -1 })
     .limit(250)
     .select("items")

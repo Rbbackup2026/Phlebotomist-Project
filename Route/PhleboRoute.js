@@ -5,7 +5,7 @@ const crypto = require("crypto");
 const bcrypt = require("bcrypt");
 const { verifyToken, requireRole, attachScope } = require("./authMiddleware");
 const Phlebotomist = require("../Models/Phlebotomist");
-const Job = require("../Models/Job");
+const Order = require("../Models/Order");
 const OpsUser = require("../Models/OpsUser");
 const Client = require("../Models/Client");
 const InventoryItem = require("../Models/InventoryItem");
@@ -131,7 +131,7 @@ function recalcJobTotals(job) {
 
 /** Cash jo phlebo ne collect kiya hai par abhi tak office/lab ko hand over (settle) nahi kiya */
 async function getCashSummary(phleboId) {
-  const jobs = await Job.find({
+  const jobs = await Order.find({
     paymentCollectedBy: phleboId,
     paymentCollectedMethod: { $regex: /^cash$/i },
     paymentStatus: "Paid",
@@ -374,8 +374,8 @@ router.get("/admin/orders", verifyToken, attachScope, async (req, res) => {
     const pageNum = Math.max(1, Number(page) || 1);
     const skip = (pageNum - 1) * limitNum;
     const [total, orders] = await Promise.all([
-      Job.countDocuments(filter),
-      Job.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+      Order.countDocuments(filter),
+      Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
     ]);
     const totalPages = Math.max(1, Math.ceil(total / limitNum));
     res.json({
@@ -404,7 +404,7 @@ router.get(
   attachScope,
   async (req, res) => {
     try {
-      const job = await Job.findOne({ _id: req.params.id, ...req.scopeFilter });
+      const job = await Order.findOne({ _id: req.params.id, ...req.scopeFilter });
       if (!job) {
         return res.status(404).json({ success: false, message: "Order not found" });
       }
@@ -430,17 +430,17 @@ router.get(
 
       let source = null;
       if (job.walkInSourceJobId) {
-        source = pick(await Job.findById(job.walkInSourceJobId));
+        source = pick(await Order.findById(job.walkInSourceJobId));
       }
 
       const walkIns = (
-        await Job.find({ walkInSourceJobId: job._id }).sort({ createdAt: 1 })
+        await Order.find({ walkInSourceJobId: job._id }).sort({ createdAt: 1 })
       ).map(pick);
 
       let siblings = [];
       if (job.walkInSourceJobId) {
         siblings = (
-          await Job.find({
+          await Order.find({
             walkInSourceJobId: job.walkInSourceJobId,
             _id: { $ne: job._id },
           }).sort({ createdAt: 1 })
@@ -498,7 +498,7 @@ router.get(
 
       const [phlebos, jobDocs, leaves] = await Promise.all([
         Phlebotomist.find(cityFilter).sort({ name: 1 }).select("-passwordHash -otp"),
-        Job.find({ ...req.scopeFilter, slotDate: date })
+        Order.find({ ...req.scopeFilter, slotDate: date })
           .select(
             "pickupId patientName mobileNumber slotDate slotTime status phleboStatus " +
               "assignedPhlebo assignedPhleboName city isRedraw rescheduleRequested paymentStatus lat lng"
@@ -645,7 +645,7 @@ router.post("/admin/orders", verifyToken, requireRole("admin"), async (req, res)
       generateTrackingToken(),
     ]);
 
-    const job = await Job.create({
+    const job = await Order.create({
       clientId: client._id,
       clientSlug: client.slug,
       clientName: client.name,
@@ -738,7 +738,7 @@ router.get("/admin/catalog", verifyToken, async (req, res) => {
 /** Ops: existing order mein manually ek extra test add karna (customer ne phone pe manga) */
 router.post("/admin/orders/:id/tests", verifyToken, requireRole("admin"), async (req, res) => {
   try {
-    const order = await Job.findById(req.params.id);
+    const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
     if (req.user.role === "admin" && order.city !== req.user.city) {
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
@@ -814,7 +814,7 @@ router.post("/admin/orders/:id/tests", verifyToken, requireRole("admin"), async 
 
 router.post("/admin/orders/:id/push-lis", verifyToken, requireRole("superadmin", "admin"), async (req, res) => {
   try {
-    const order = await Job.findById(req.params.id);
+    const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
     if (req.user.role === "admin" && order.city !== req.user.city) {
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
@@ -822,7 +822,7 @@ router.post("/admin/orders/:id/push-lis", verifyToken, requireRole("superadmin",
     applyAgeFields(order, req.body);
     await order.save();
     const result = await pushJobToLis(order._id, { force: true });
-    const fresh = await Job.findById(order._id);
+    const fresh = await Order.findById(order._id);
     if (result.skipped && result.reason === "not collected+paid") {
       return res.status(400).json({
         success: false,
@@ -853,7 +853,7 @@ router.delete(
   requireRole("admin"),
   async (req, res) => {
     try {
-      const order = await Job.findById(req.params.id);
+      const order = await Order.findById(req.params.id);
       if (!order) return res.status(404).json({ success: false, message: "Order not found" });
       if (req.user.role === "admin" && order.city !== req.user.city) {
         return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
@@ -921,7 +921,7 @@ router.get("/admin/added-tests", verifyToken, attachScope, async (req, res) => {
     const toT = to && !isNaN(new Date(to)) ? new Date(to).setHours(23, 59, 59, 999) : null;
 
     const limitNum = Math.min(500, Math.max(1, Number(limit) || 200));
-    const jobs = await Job.find(filter)
+    const jobs = await Order.find(filter)
       .select(
         "patientName clientName clientSlug assignedPhleboName assignedPhlebo phleboStatus items createdAt"
       )
@@ -1076,7 +1076,7 @@ router.get("/admin/phlebos", verifyToken, requireRole("superadmin", "admin"), as
     const cityFilter = req.user.role === "admin" ? { city: req.user.city } : {};
     const phlebos = await Phlebotomist.find(cityFilter).sort({ name: 1 }).select("-passwordHash -otp");
 
-    const cashAgg = await Job.aggregate([
+    const cashAgg = await Order.aggregate([
       {
         $match: {
           paymentCollectedBy: { $ne: null },
@@ -1096,7 +1096,7 @@ router.get("/admin/phlebos", verifyToken, requireRole("superadmin", "admin"), as
     // in-progress hain, aur kaun-kaun si lab(s) ke order unke paas assigned hain
     // (Team/Phlebos table mein "kis phlebo ko kis lab ka kaam h" dikhane ke liye).
     const phleboIds = phlebos.map((p) => p._id);
-    const jobAgg = await Job.aggregate([
+    const jobAgg = await Order.aggregate([
       { $match: { assignedPhlebo: { $in: phleboIds } } },
       {
         $group: {
@@ -1181,7 +1181,7 @@ router.get(
 
       const date = req.query.date || ymd(new Date());
       const DONE_STATUSES = ["Sample Collected", "Handed Off"];
-      const completed = await Job.find({
+      const completed = await Order.find({
         assignedPhlebo: phlebo._id,
         phleboStatus: { $in: DONE_STATUSES },
         collectedAt: { $ne: null },
@@ -1215,10 +1215,10 @@ router.post("/admin/phlebos/:id/cash/settle", verifyToken, requireRole("admin"),
       filter._id = { $in: jobIds };
     }
 
-    const before = await Job.find(filter).select("totalAmount");
+    const before = await Order.find(filter).select("totalAmount");
     const settledAmount = before.reduce((s, j) => s + (j.totalAmount || 0), 0);
 
-    const result = await Job.updateMany(filter, {
+    const result = await Order.updateMany(filter, {
       $set: { cashSettled: true, cashSettledAt: new Date(), cashSettledBy: req.user._id },
     });
 
@@ -1236,7 +1236,7 @@ router.post("/admin/phlebos/:id/cash/settle", verifyToken, requireRole("admin"),
 router.put("/admin/orders/:id/assign-phlebo", verifyToken, requireRole("admin"), async (req, res) => {
   try {
     const { phleboId } = req.body;
-    const order = await Job.findById(req.params.id);
+    const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
     if (req.user.role === "admin" && order.city !== req.user.city) {
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
@@ -1310,7 +1310,7 @@ router.put("/admin/orders/:id/assign-phlebo", verifyToken, requireRole("admin"),
 router.put("/admin/orders/:id/assign-lab", verifyToken, requireRole("admin"), async (req, res) => {
   try {
     const { labId } = req.body;
-    const order = await Job.findById(req.params.id);
+    const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
     if (req.user.role === "admin" && order.city !== req.user.city) {
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
@@ -1356,7 +1356,7 @@ router.put("/admin/orders/:id/reschedule", verifyToken, requireRole("admin"), as
       return res.status(400).json({ success: false, message: "Naya slotDate aur slotTime required hain" });
     }
 
-    const order = await Job.findById(req.params.id);
+    const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
     if (req.user.role === "admin" && order.city !== req.user.city) {
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
@@ -1435,7 +1435,7 @@ router.put("/admin/orders/:id/reschedule", verifyToken, requireRole("admin"), as
  *  allowed hai jab sample already handed off ho chuka ho. */
 router.put("/admin/orders/:id/report-ready", verifyToken, requireRole("admin"), async (req, res) => {
   try {
-    const order = await Job.findById(req.params.id);
+    const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
     if (req.user.role === "admin" && order.city !== req.user.city) {
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
@@ -1470,7 +1470,7 @@ router.put(
   async (req, res) => {
     try {
       const { reason, createRedraw = true, slotDate, slotTime } = req.body || {};
-      const order = await Job.findById(req.params.id);
+      const order = await Order.findById(req.params.id);
       if (!order) return res.status(404).json({ success: false, message: "Order not found" });
       if (req.user.role === "admin" && order.city !== req.user.city) {
         return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
@@ -1492,7 +1492,7 @@ router.put(
           generatePickupId(),
           generateTrackingToken(),
         ]);
-        redrawJob = await Job.create({
+        redrawJob = await Order.create({
           clientId: order.clientId,
           clientSlug: order.clientSlug,
           clientName: order.clientName,
@@ -1733,7 +1733,7 @@ router.get("/phlebo/job-stats", verifyPhlebo, async (req, res) => {
     const isToday = date === ymd(new Date());
     const DONE_STATUSES = ["Sample Collected", "Handed Off"];
 
-    const completed = await Job.find({
+    const completed = await Order.find({
       assignedPhlebo: req.phlebo._id,
       phleboStatus: { $in: DONE_STATUSES },
       collectedAt: { $ne: null },
@@ -1945,7 +1945,7 @@ router.get("/phlebo/jobs", verifyPhlebo, async (req, res) => {
     // Rejected jobs wapas pool mein chale jaate hain (is phlebo se hat gaye).
     // Handed Off (fully completed) ko yahan se exclude NAHI karte — warna handover
     // ke baad wo job "Done" count aur list dono se gayab ho jaata tha.
-    const allOrders = await Job.find({
+    const allOrders = await Order.find({
       assignedPhlebo: req.phlebo._id,
       phleboStatus: { $ne: "Rejected" },
     }).sort({ slotDate: 1, slotTime: 1 });
@@ -2024,7 +2024,7 @@ async function buildRoutePlan(phleboDoc, date, opts = {}) {
 
   // Aaj (ya query date) ke liye phlebo ke saare non-terminal jobs — inhi ko visit
   // karna baaki hai, isliye route plan mein shamil honge.
-  const allOrders = await Job.find({
+  const allOrders = await Order.find({
     assignedPhlebo: phleboDoc._id,
     phleboStatus: { $nin: TERMINAL },
   });
@@ -2185,7 +2185,7 @@ router.post("/phlebo/jobs/create-direct", verifyPhlebo, async (req, res) => {
       generateTrackingToken(),
     ]);
 
-    const job = await Job.create({
+    const job = await Order.create({
       clientId: client._id,
       clientSlug: client.slug,
       clientName: client.name,
@@ -2281,7 +2281,7 @@ router.get("/phlebo/catalog", verifyPhlebo, phleboDirectCatalog);
 
 router.get("/phlebo/jobs/:id", verifyPhlebo, async (req, res) => {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -2297,7 +2297,7 @@ router.get("/phlebo/jobs/:id", verifyPhlebo, async (req, res) => {
 /** Saare tests dropdown ke liye (partner website catalog se) */
 router.get("/phlebo/jobs/:id/tests/catalog", verifyPhlebo, async (req, res) => {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -2337,7 +2337,7 @@ router.get("/phlebo/jobs/:id/tests/catalog", verifyPhlebo, async (req, res) => {
 /** Customer ne extra test maanga — job + Wello order mein add */
 router.post("/phlebo/jobs/:id/tests", verifyPhlebo, async (req, res) => {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -2417,7 +2417,7 @@ router.post("/phlebo/jobs/:id/tests", verifyPhlebo, async (req, res) => {
  *  POST body preferred (mobile/proxies pe DELETE kabhi miss ho jata hai). */
 async function removePhleboAddedTest(req, res) {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -2481,7 +2481,7 @@ router.delete("/phlebo/jobs/:id/tests/:productId", verifyPhlebo, removePhleboAdd
 /** Phlebo ne jo walk-in patients add kiye hain unki list (dashboard ke liye) */
 router.get("/phlebo/walkin-jobs", verifyPhlebo, async (req, res) => {
   try {
-    const jobs = await Job.find({
+    const jobs = await Order.find({
       assignedPhlebo: req.phlebo._id,
       walkInSourceJobId: { $ne: null },
     })
@@ -2496,7 +2496,7 @@ router.get("/phlebo/walkin-jobs", verifyPhlebo, async (req, res) => {
 
 router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
   try {
-    const sourceJob = await Job.findOne({
+    const sourceJob = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -2541,7 +2541,7 @@ router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
 
     // Already at the address — start at Arrived so OTP/consent/collect can proceed
     // without forcing En Route again. assignedBy must be in Job schema enum.
-    const newJob = await Job.create({
+    const newJob = await Order.create({
       clientId: sourceJob.clientId,
       clientSlug: sourceJob.clientSlug,
       clientName: sourceJob.clientName,
@@ -2608,7 +2608,7 @@ router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
 
 router.post("/phlebo/jobs/:id/accept", verifyPhlebo, async (req, res) => {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -2633,7 +2633,7 @@ router.post("/phlebo/jobs/:id/reject", verifyPhlebo, async (req, res) => {
     if (!reason) {
       return res.status(400).json({ success: false, message: "Rejection reason required" });
     }
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -2661,7 +2661,7 @@ router.post("/phlebo/jobs/:id/customer-cancel", verifyPhlebo, async (req, res) =
     if (!remark) {
       return res.status(400).json({ success: false, message: "Cancel remark required" });
     }
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -2738,7 +2738,7 @@ router.put("/admin/orders/:id/cancel", verifyToken, requireRole("admin"), async 
       return res.status(400).json({ success: false, message: "Cancel reason required" });
     }
 
-    const order = await Job.findById(req.params.id);
+    const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
     if (req.user.role === "admin" && order.city !== req.user.city) {
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
@@ -2778,7 +2778,7 @@ router.put("/admin/orders/:id/cancel", verifyToken, requireRole("admin"), async 
 router.post("/phlebo/jobs/:id/en-route", verifyPhlebo, async (req, res) => {
   try {
     const { lat, lng } = req.body || {};
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -2804,7 +2804,7 @@ router.post("/phlebo/jobs/:id/en-route", verifyPhlebo, async (req, res) => {
 router.post("/phlebo/jobs/:id/arrival", verifyPhlebo, async (req, res) => {
   try {
     const { lat, lng } = req.body;
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -2854,7 +2854,7 @@ router.post("/phlebo/jobs/:id/arrival", verifyPhlebo, async (req, res) => {
 
 router.post("/phlebo/jobs/:id/otp/send", verifyPhlebo, async (req, res) => {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -2906,7 +2906,7 @@ router.post("/phlebo/jobs/:id/otp/send", verifyPhlebo, async (req, res) => {
 router.post("/phlebo/jobs/:id/otp/verify", verifyPhlebo, async (req, res) => {
   try {
     const otp = String(req.body.otp || "").trim();
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -2944,7 +2944,7 @@ router.post("/phlebo/jobs/:id/otp/verify", verifyPhlebo, async (req, res) => {
 router.post("/phlebo/jobs/:id/consent", verifyPhlebo, async (req, res) => {
   try {
     const { signatureData, declined, lat, lng } = req.body;
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -3006,7 +3006,7 @@ router.post("/phlebo/jobs/:id/trf", verifyPhlebo, async (req, res) => {
       return res.status(400).json({ success: false, message: "TRF barcode required" });
     }
 
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -3040,7 +3040,7 @@ router.post("/phlebo/jobs/:id/trf", verifyPhlebo, async (req, res) => {
 /** Clear TRF so phlebo can rescan. Also clears TRF photos, tubes, and collection photos. */
 router.delete("/phlebo/jobs/:id/trf", verifyPhlebo, async (req, res) => {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -3082,7 +3082,7 @@ router.post("/phlebo/jobs/:id/barcode", verifyPhlebo, async (req, res) => {
       return res.status(400).json({ success: false, message: "Barcode required" });
     }
 
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -3117,7 +3117,7 @@ router.post("/phlebo/jobs/:id/barcode", verifyPhlebo, async (req, res) => {
       });
     }
 
-    const dup = await Job.findOne({
+    const dup = await Order.findOne({
       "samples.barcode": code,
       _id: { $ne: order._id },
     });
@@ -3179,7 +3179,7 @@ router.post("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
       });
     }
 
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -3263,7 +3263,7 @@ router.post("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
 /** Delete one job-level TRF/collection photo by index, or all if index omitted. */
 router.delete("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -3317,7 +3317,7 @@ router.delete("/phlebo/jobs/:id/photo", verifyPhlebo, async (req, res) => {
 /** Delete one sample photo by index, or all photos if index omitted. */
 router.delete("/phlebo/jobs/:id/samples/:sampleId/photo", verifyPhlebo, async (req, res) => {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -3368,7 +3368,7 @@ router.delete("/phlebo/jobs/:id/samples/:sampleId/photo", verifyPhlebo, async (r
 /** Scanned tube / sample hatao (collection se pehle) */
 async function removeJobSample(req, res) {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -3412,7 +3412,7 @@ router.delete("/phlebo/jobs/:id/samples/:sampleId", verifyPhlebo, removeJobSampl
 router.put("/phlebo/jobs/:id/payment", verifyPhlebo, async (req, res) => {
   try {
     const method = String(req.body.method || "Cash").trim();
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -3456,7 +3456,7 @@ router.put("/phlebo/jobs/:id/payment", verifyPhlebo, async (req, res) => {
     order.paymentCollectedBy = req.phlebo._id;
     await saveAndNotify(order);
     await pushJobToLis(order._id);
-    const fresh = await Job.findById(order._id);
+    const fresh = await Order.findById(order._id);
     res.json({ success: true, job: formatJob(fresh) });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, message: error.message });
@@ -3465,14 +3465,14 @@ router.put("/phlebo/jobs/:id/payment", verifyPhlebo, async (req, res) => {
 
 router.post("/phlebo/jobs/:id/payment/qr", verifyPhlebo, async (req, res) => {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
     const force = req.body && req.body.force === true;
     const job = await onlinePayment.openQr(order, { force });
-    const fresh = await Job.findById(job._id);
+    const fresh = await Order.findById(job._id);
     res.json({
       success: true,
       job: formatJob(fresh),
@@ -3485,13 +3485,13 @@ router.post("/phlebo/jobs/:id/payment/qr", verifyPhlebo, async (req, res) => {
 
 router.get("/phlebo/jobs/:id/payment/status", verifyPhlebo, async (req, res) => {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
     const job = await onlinePayment.syncIfPending(order);
-    const fresh = await Job.findById(job._id);
+    const fresh = await Order.findById(job._id);
     res.json({ success: true, job: formatJob(fresh) });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, message: error.message });
@@ -3500,13 +3500,13 @@ router.get("/phlebo/jobs/:id/payment/status", verifyPhlebo, async (req, res) => 
 
 router.post("/phlebo/jobs/:id/payment/qr/cancel", verifyPhlebo, async (req, res) => {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
     const job = await onlinePayment.cancelQr(order);
-    const fresh = await Job.findById(job._id);
+    const fresh = await Order.findById(job._id);
     res.json({ success: true, job: formatJob(fresh) });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, message: error.message });
@@ -3515,7 +3515,7 @@ router.post("/phlebo/jobs/:id/payment/qr/cancel", verifyPhlebo, async (req, res)
 
 router.put("/phlebo/jobs/:id/complete", verifyPhlebo, async (req, res) => {
   try {
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -3572,7 +3572,7 @@ router.put("/phlebo/jobs/:id/complete", verifyPhlebo, async (req, res) => {
     if (due <= 0 || String(order.paymentStatus || "") === "Paid") {
       await pushJobToLis(order._id);
     }
-    const fresh = await Job.findById(order._id);
+    const fresh = await Order.findById(order._id);
     res.json({
       success: true,
       job: formatJob(fresh),
@@ -3586,7 +3586,7 @@ router.put("/phlebo/jobs/:id/complete", verifyPhlebo, async (req, res) => {
 router.post("/phlebo/jobs/:id/handover", verifyPhlebo, async (req, res) => {
   try {
     const { barcodes, lat, lng, note, bagPhotoUrl, bagPhotoUrls, bagTemperatureC } = req.body;
-    const order = await Job.findOne({
+    const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
@@ -3830,7 +3830,7 @@ router.get("/admin/phlebos/:id", verifyToken, requireRole("superadmin", "admin")
       return res.status(403).json({ success: false, message: "Ye phlebo aapke city ka nahi hai" });
     }
 
-    const orders = await Job.find({ assignedPhlebo: phlebo._id });
+    const orders = await Order.find({ assignedPhlebo: phlebo._id });
     const stats = {
       totalJobs: orders.length,
       completed: orders.filter((o) =>
@@ -4073,7 +4073,7 @@ router.delete("/admin/phlebos/:id", verifyToken, requireRole("admin"), async (re
       "OTP Verified",
       "Consent Done",
     ];
-    const activeJob = await Job.findOne({
+    const activeJob = await Order.findOne({
       assignedPhlebo: phlebo._id,
       phleboStatus: { $in: ACTIVE_STATUSES },
     });
@@ -4107,12 +4107,12 @@ router.get("/admin/analytics", verifyToken, requireRole("superadmin", "admin"), 
     const phleboFilter = req.user.role === "admin" ? { city: req.user.city } : {};
 
     const [allOrders, phlebos, clients, cashAgg] = await Promise.all([
-      Job.find(orderFilter).select(
+      Order.find(orderFilter).select(
         "assignedPhlebo assignedPhleboName phleboStatus paymentStatus totalAmount createdAt clientSlug"
       ),
       Phlebotomist.find(phleboFilter).select("-passwordHash -otp"),
       Client.find().select("name slug status"),
-      Job.aggregate([
+      Order.aggregate([
         {
           $match: {
             ...req.scopeFilter,
@@ -4175,7 +4175,7 @@ router.get(
   async (req, res) => {
     try {
       const filter = { ...req.scopeFilter, "handover.handedOverAt": { $ne: null } };
-      const orders = await Job.find(filter)
+      const orders = await Order.find(filter)
         .select("patientName assignedLabName city handover reportReadyAt slotDate slotTime")
         .sort({ "handover.handedOverAt": -1 })
         .limit(500);
@@ -4242,7 +4242,7 @@ router.get(
 router.get("/admin/analytics/by-city", verifyToken, requireRole("superadmin"), async (_req, res) => {
   try {
     const [orderAgg, phleboAgg, admins, labAgg] = await Promise.all([
-      Job.aggregate([
+      Order.aggregate([
         {
           $group: {
             _id: { $ifNull: ["$city", "Unknown"] },

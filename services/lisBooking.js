@@ -2,7 +2,7 @@
  * Push collected+paid jobs to LIS BookingAPINew.
  * Panel_ID = phlebo.lisPanelId (PUPMasterData client code) — API naya client nahi banati.
  */
-const Job = require("../Models/Job");
+const Order = require("../Models/Order");
 const Phlebotomist = require("../Models/Phlebotomist");
 
 const DEFAULT_LIS_BOOKING_URL =
@@ -395,7 +395,7 @@ function errorMessage(data, httpStatus, raw) {
 async function pushJobToLis(jobId, { force = false } = {}) {
   if (!bookingEnabled()) return { skipped: true, reason: "disabled" };
 
-  const job = await Job.findById(jobId);
+  const job = await Order.findById(jobId);
   if (!job) return { skipped: true, reason: "missing job" };
 
   if (!force && job.lisBookingStatus === "success" && job.lisLedgerNo) {

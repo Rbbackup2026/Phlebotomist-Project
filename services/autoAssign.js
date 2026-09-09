@@ -1,4 +1,4 @@
-const Job = require("../Models/Job");
+const Order = require("../Models/Order");
 const Phlebotomist = require("../Models/Phlebotomist");
 const PhleboLeave = require("../Models/PhleboLeave");
 const { saveAndNotify } = require("./webhook");
@@ -67,7 +67,7 @@ function haversineKm(lat1, lng1, lat2, lng2) {
  * @returns {Promise<Object|null>} the chosen Phlebotomist doc, or null if none matched.
  */
 async function autoAssignJob(jobId) {
-  const job = await Job.findById(jobId);
+  const job = await Order.findById(jobId);
   if (!job || job.phleboStatus !== "Unassigned") return null;
 
   const targetDay = dayKeyOf(job.slotDate);
@@ -105,7 +105,7 @@ async function autoAssignJob(jobId) {
     const cap = p.maxDailyJobs || 0;
     if (cap <= 0) continue; // admin hasn't opted this phlebo into auto-assign yet
 
-    const dayJobs = await Job.find({
+    const dayJobs = await Order.find({
       assignedPhlebo: p._id,
       phleboStatus: { $ne: "Rejected" },
     }).select("slotDate");
@@ -156,7 +156,7 @@ async function autoAssignJob(jobId) {
  * @returns {Promise<number>} how many jobs got assigned.
  */
 async function tryAutoAssignPendingJobs() {
-  const pending = await Job.find({ phleboStatus: "Unassigned" })
+  const pending = await Order.find({ phleboStatus: "Unassigned" })
     .sort({ slotDate: 1, slotTime: 1 })
     .select("_id");
 
@@ -169,7 +169,7 @@ async function tryAutoAssignPendingJobs() {
 }
 
 /**
- * Call right after Job.create() — geocodes the address if it wasn't already supplied,
+ * Call right after Order.create() — geocodes the address if it wasn't already supplied,
  * then immediately tries auto-assign. Meant to run in the background (setImmediate)
  * so it never adds latency to the create-order response; swallows its own errors for
  * the same reason (a failure here should never surface to the caller).
@@ -188,7 +188,7 @@ async function geocodeAndAutoAssign(job) {
         job.lat = geo.lat;
         job.lng = geo.lng;
         job.geocodedAt = new Date();
-        await Job.updateOne(
+        await Order.updateOne(
           { _id: job._id },
           { $set: { lat: geo.lat, lng: geo.lng, geocodedAt: job.geocodedAt } }
         );

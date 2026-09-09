@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const Job = require("../Models/Job");
+const Order = require("../Models/Order");
 const Phlebotomist = require("../Models/Phlebotomist");
 
 /**
@@ -26,7 +26,7 @@ const STATUS_LABELS = {
 
 router.get("/track/:token", async (req, res) => {
   try {
-    const order = await Job.findOne({ trackingToken: req.params.token });
+    const order = await Order.findOne({ trackingToken: req.params.token });
     if (!order) {
       return res.status(404).json({ success: false, message: "Tracking link not found" });
     }
@@ -63,7 +63,7 @@ router.post("/track/:token/rate", async (req, res) => {
       return res.status(400).json({ success: false, message: "stars must be 1-5" });
     }
 
-    const order = await Job.findOne({ trackingToken: req.params.token });
+    const order = await Order.findOne({ trackingToken: req.params.token });
     if (!order) {
       return res.status(404).json({ success: false, message: "Tracking link not found" });
     }
@@ -110,7 +110,7 @@ router.post("/track/:token/rate", async (req, res) => {
 router.post("/track/:token/reschedule-request", async (req, res) => {
   try {
     const { note } = req.body || {};
-    const order = await Job.findOne({ trackingToken: req.params.token });
+    const order = await Order.findOne({ trackingToken: req.params.token });
     if (!order) {
       return res.status(404).json({ success: false, message: "Tracking link not found" });
     }

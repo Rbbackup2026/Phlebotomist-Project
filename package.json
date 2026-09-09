@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "migrate:jobs-to-orders": "node scripts/migrateJobsToOrders.js",
     "build:admin": "cd admin-web && npm install && npm run build"
   },
   "private": true,
