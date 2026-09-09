@@ -16,6 +16,7 @@ import Team from "./pages/Team.jsx";
 import LiveMap from "./pages/LiveMap.jsx";
 import LabTat from "./pages/LabTat.jsx";
 import Tickets from "./pages/Tickets.jsx";
+import Clients from "./pages/Clients.jsx";
 
 function ProtectedLayout({ children, roles }) {
   const { isAuthed, user } = useAuth();
@@ -122,8 +123,8 @@ export default function App() {
       <Route
         path="/clients"
         element={
-          <ProtectedLayout>
-            <Navigate to="/" replace />
+          <ProtectedLayout roles={["superadmin", "admin", "ops"]}>
+            <Clients />
           </ProtectedLayout>
         }
       />

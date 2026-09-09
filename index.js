@@ -26,7 +26,7 @@ const {
 /**
  * PhleboBackend — standalone product (own MongoDB).
  *
- *   Website (Wello / others)  --API key-->  POST /partner/jobs
+ *   Website / CRM             --API key-->  POST /partner/orders
  *   PhleboApp                 ------------>  /phlebo/* + /admin/*
  *   Status changes            --webhook--->  partner website
  *
@@ -188,7 +188,7 @@ async function start() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`PhleboBackend :${PORT} (standalone, DB=${mongoose.connection.name})`);
-    console.log("Partner API: POST /v1/api/partner/jobs  (Bearer apiKey)");
+    console.log("Partner API: POST /v1/api/partner/orders  (Bearer apiKey)");
     console.log("PhleboApp → http://localhost:3010/v1/api");
     console.log(
       `Security: NODE_ENV=${process.env.NODE_ENV || "development"} uploads=auth CORS=${isProduction() ? "restricted" : "dev-open"} SMS=${isSmsConfigured() ? "TextGuru" : "off"} Razorpay=${isRazorpayConfigured() ? "ON" : "off"} DemoOTP=${allowDemoOtp() ? "ON-123456" : "OFF"}`

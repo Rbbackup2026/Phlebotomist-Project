@@ -14,8 +14,7 @@ const baseItems = [
   { to: "/attendance", label: "Attendance", icon: "🕘" },
   { to: "/collections", label: "Collections", icon: "📅" },
   { to: "/lab-tat", label: "Lab TAT", icon: "⏱️" },
-  // Clients (partner websites) nav temporarily hidden — Wello not shown in UI.
-  // Restore: add `{ to: "/clients", label: "Clients", icon: "🌐" }` back here.
+  { to: "/clients", label: "Clients", icon: "🌐" },
 ];
 
 // Superadmin manages city Admins; Admin manages their city's Labs. Lab role
@@ -37,9 +36,10 @@ export default function Sidebar() {
   // Lab sirf apne assign kiye samples dekhti hai — Dashboard (apna summary) +
   // Orders (assigned list) ke alawa kuch nahi chahiye. Added Tests/Payments/
   // Kits/Phlebos/Clients sab city-Admin ka operational territory hai.
+  const clientsItem = baseItems.find((i) => i.to === "/clients");
   const items =
     role === "superadmin"
-      ? [baseItems[0], teamItem, ticketsItem]
+      ? [baseItems[0], clientsItem, teamItem, ticketsItem].filter(Boolean)
       : role === "admin"
       ? [...baseItems, teamItem, ticketsItem]
       : role === "lab"

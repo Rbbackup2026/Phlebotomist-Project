@@ -5,18 +5,14 @@ const Order = require("../Models/Order");
 const { geocodeAndAutoAssign } = require("../services/autoAssign");
 const { generatePickupId, generateTrackingToken } = require("../services/pickupId");
 
-/** Job create hone ke turant baad — background mein geocode (agar partner ne lat/lng
- *  khud nahi diya) + nearest on-duty phlebo ko auto-assign try karta hai (see
- *  services/autoAssign.js). Response block kiye bina (jaisa saveAndNotify webhook ke
- *  saath karta hai) — koi eligible phlebo na mile to job "Unassigned" hi rehti hai,
- *  Ops dashboard se manually assign ho sakti hai. */
-function autoAssignInBackground(job) {
+/** Order create ke baad — background geocode + nearest on-duty phlebo auto-assign. */
+function autoAssignInBackground(order) {
   setImmediate(() => {
-    geocodeAndAutoAssign(job).catch(() => {});
+    geocodeAndAutoAssign(order).catch(() => {});
   });
 }
 
-/** Partner websites: Authorization: Bearer <apiKey> */
+/** Partner / CRM: Authorization: Bearer <apiKey> */
 async function verifyPartner(req, res, next) {
   try {
     const auth = req.headers.authorization || "";
@@ -44,9 +40,10 @@ async function verifyPartner(req, res, next) {
 }
 
 /**
- * POST /partner/jobs — website pe order create hone ke baad Phlebo job banao
+ * POST /partner/orders — CRM/website pe order create hone ke baad Phlebo mein order banao
+ * Legacy alias: POST /partner/jobs (same handler)
  */
-router.post("/partner/jobs", verifyPartner, async (req, res) => { 
+async function createPartnerOrder(req, res) {
   try {
     const b = req.body || {};
     const externalOrderId = String(b.externalOrderId || b.orderId || "").trim();
@@ -67,22 +64,20 @@ router.post("/partner/jobs", verifyPartner, async (req, res) => {
     if (existing) {
       return res.status(200).json({
         success: true,
-        message: "Job already exists",
-        jobId: existing._id,
-        job: existing,
+        message: "Order already exists",
+        orderId: existing._id,
+        order: existing,
         duplicate: true,
       });
     }
 
-    // Partner website already has a map-pin lat/lng at checkout in most cases — use it
-    // directly when sent. Only fall back to geocoding the address string ourselves.
     const hasCoords = typeof b.lat === "number" && typeof b.lng === "number";
     const [pickupId, trackingToken] = await Promise.all([
       generatePickupId(),
       generateTrackingToken(),
     ]);
 
-    const job = await Order.create({
+    const order = await Order.create({
       clientId: req.client._id,
       clientSlug: req.client.slug,
       clientName: req.client.name,
@@ -110,15 +105,16 @@ router.post("/partner/jobs", verifyPartner, async (req, res) => {
       paymentStatus: b.paymentStatus || "Unpaid",
       specialInstructions: b.specialInstructions || "",
       phleboStatus: "Unassigned",
+      createdBySource: "partner",
     });
 
-    autoAssignInBackground(job);
+    autoAssignInBackground(order);
 
     res.status(201).json({
       success: true,
-      message: "Job created in Phlebo",
-      jobId: job._id,
-      job,
+      message: "Order created in Phlebo",
+      orderId: order._id,
+      order,
     });
   } catch (error) {
     if (error.code === 11000) {
@@ -128,36 +124,42 @@ router.post("/partner/jobs", verifyPartner, async (req, res) => {
       });
       return res.status(200).json({
         success: true,
-        message: "Job already exists",
-        jobId: again?._id,
-        job: again,
+        message: "Order already exists",
+        orderId: again?._id,
+        order: again,
         duplicate: true,
       });
     }
     res.status(500).json({ success: false, message: error.message });
   }
-});
+}
 
-/** GET /partner/jobs/:externalOrderId — website apna order status check kare */
-router.get("/partner/jobs/:externalOrderId", verifyPartner, async (req, res) => {
+/** GET /partner/orders/:externalOrderId — CRM apna order status check kare */
+async function getPartnerOrder(req, res) {
   try {
-    const job = await Order.findOne({
+    const order = await Order.findOne({
       clientId: req.client._id,
       externalOrderId: String(req.params.externalOrderId).trim(),
     });
-    if (!job) {
-      return res.status(404).json({ success: false, message: "Job not found" });
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
     }
-    res.json({ success: true, job });
+    res.json({ success: true, order });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
-});
+}
 
-/** POST /partner/clients — platform seed only (protected by PLATFORM_SEED_KEY) */
+router.post("/partner/orders", verifyPartner, createPartnerOrder);
+router.get("/partner/orders/:externalOrderId", verifyPartner, getPartnerOrder);
+
+// Legacy aliases (purane Wello / integrations break na hon)
+router.post("/partner/jobs", verifyPartner, createPartnerOrder);
+router.get("/partner/jobs/:externalOrderId", verifyPartner, getPartnerOrder);
+
+/** POST /partner/register-client — platform seed only (protected by PLATFORM_SEED_KEY) */
 router.post("/partner/register-client", async (req, res) => {
   try {
-    // Production: disable unless ALLOW_CLIENT_REGISTER=true (prevents Postman abuse)
     const { isProduction, getPlatformSeedKey } = require("../services/securityConfig");
     if (isProduction() && String(process.env.ALLOW_CLIENT_REGISTER || "").toLowerCase() !== "true") {
       return res.status(403).json({
