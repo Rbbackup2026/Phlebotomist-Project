@@ -50,6 +50,11 @@ const GEOFENCE_RADIUS_M = 300;
 // GPS noise/teleport guard for the daily-Kms accumulator — a jump bigger than this
 // between two ~25s location pings is almost certainly a GPS glitch, not real travel.
 const MAX_REALISTIC_PING_KM = 3;
+
+function parseCoord(value) {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
 // Jin statuses ke baad patient ka naam/number ab mask nahi hota (phlebo ne job accept
 // kar li hai). Job list aur route-plan dono isi list ko use karte hain.
 const UNMASKED_STATUSES = [
@@ -1754,6 +1759,13 @@ router.put("/phlebo/duty-status", verifyPhlebo, async (req, res) => {
     if (dutyStatus === "off_duty") {
       req.phlebo.lastOffDutyAt = new Date();
     }
+    const lat = parseCoord(req.body?.lat);
+    const lng = parseCoord(req.body?.lng);
+    if (dutyStatus === "on_duty" && lat != null && lng != null) {
+      req.phlebo.currentLat = lat;
+      req.phlebo.currentLng = lng;
+      req.phlebo.lastLocationAt = new Date();
+    }
     await req.phlebo.save();
 
     // Phlebo abhi on-duty hua — jo jobs pehle kisi eligible phlebo na milne se
@@ -1782,8 +1794,9 @@ router.put("/phlebo/duty-status", verifyPhlebo, async (req, res) => {
 
 router.post("/phlebo/location", verifyPhlebo, async (req, res) => {
   try {
-    const { lat, lng } = req.body;
-    if (typeof lat !== "number" || typeof lng !== "number") {
+    const lat = parseCoord(req.body?.lat);
+    const lng = parseCoord(req.body?.lng);
+    if (lat == null || lng == null) {
       return res.status(400).json({ success: false, message: "lat/lng required" });
     }
 

@@ -17,8 +17,15 @@ function timeAgo(dateStr) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+function coordsOf(p) {
+  const lat = typeof p.currentLat === "number" ? p.currentLat : Number(p.currentLat);
+  const lng = typeof p.currentLng === "number" ? p.currentLng : Number(p.currentLng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
 export default function LiveMap() {
-  const [phlebos, setPhlebos] = useState([]);
+  const [onDuty, setOnDuty] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [mapsReady, setMapsReady] = useState(false);
@@ -32,13 +39,8 @@ export default function LiveMap() {
   async function load() {
     try {
       const res = await adminApi.phlebos();
-      const live = (res.phlebos || []).filter(
-        (p) =>
-          p.dutyStatus === "on_duty" &&
-          typeof p.currentLat === "number" &&
-          typeof p.currentLng === "number"
-      );
-      setPhlebos(live);
+      const duty = (res.phlebos || []).filter((p) => p.dutyStatus === "on_duty");
+      setOnDuty(duty);
       setError("");
     } catch (e) {
       setError(e.message);
@@ -48,13 +50,18 @@ export default function LiveMap() {
   }
 
   useEffect(() => {
+    load();
+    const t = setInterval(load, REFRESH_MS);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const cfg = await adminApi.mapsConfig();
         if (!cfg.googleMapsKey) {
           setNeedKey(true);
-          setLoading(false);
           return;
         }
         await loadGoogleMaps(cfg.googleMapsKey, () => {
@@ -73,13 +80,6 @@ export default function LiveMap() {
   }, []);
 
   useEffect(() => {
-    if (!mapsReady) return;
-    load();
-    const t = setInterval(load, REFRESH_MS);
-    return () => clearInterval(t);
-  }, [mapsReady]);
-
-  useEffect(() => {
     if (!mapsReady || !mapDivRef.current || mapRef.current) return;
     mapRef.current = new window.google.maps.Map(mapDivRef.current, {
       center: INDIA,
@@ -90,6 +90,10 @@ export default function LiveMap() {
     });
   }, [mapsReady]);
 
+  const live = onDuty
+    .map((p) => ({ p, pos: coordsOf(p) }))
+    .filter((row) => row.pos);
+
   useEffect(() => {
     const map = mapRef.current;
     const g = window.google;
@@ -97,10 +101,9 @@ export default function LiveMap() {
     const markers = markersRef.current;
     const seen = new Set();
 
-    phlebos.forEach((p) => {
+    live.forEach(({ p, pos }) => {
       const id = String(p._id);
       seen.add(id);
-      const pos = { lat: p.currentLat, lng: p.currentLng };
       if (!markers[id]) {
         markers[id] = new g.maps.Marker({
           map,
@@ -129,20 +132,21 @@ export default function LiveMap() {
     });
 
     if (selected) return;
-    if (phlebos.length === 1) {
-      map.setCenter({ lat: phlebos[0].currentLat, lng: phlebos[0].currentLng });
+    if (live.length === 1) {
+      map.setCenter(live[0].pos);
       map.setZoom(13);
-    } else if (phlebos.length > 1) {
+    } else if (live.length > 1) {
       const b = new g.maps.LatLngBounds();
-      phlebos.forEach((p) => b.extend({ lat: p.currentLat, lng: p.currentLng }));
+      live.forEach(({ pos }) => b.extend(pos));
       map.fitBounds(b, 48);
     }
-  }, [phlebos, selected]);
+  }, [onDuty, selected, mapsReady]);
 
   function focusOn(p) {
+    const pos = coordsOf(p);
     setSelected(p._id);
-    if (mapRef.current) {
-      mapRef.current.panTo({ lat: p.currentLat, lng: p.currentLng });
+    if (pos && mapRef.current) {
+      mapRef.current.panTo(pos);
       mapRef.current.setZoom(15);
     }
   }
@@ -171,7 +175,9 @@ export default function LiveMap() {
 
         <div className="flex items-center gap-2 text-sm text-slate-500">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-violet-500" />
-          {loading ? "Loading…" : `${phlebos.length} phlebo live on map`}
+          {loading
+            ? "Loading…"
+            : `${onDuty.length} on duty · ${live.length} with GPS on map`}
           <span className="text-xs text-slate-300 ml-auto">Google Maps · refresh 20s</span>
         </div>
 
@@ -184,25 +190,30 @@ export default function LiveMap() {
             <div className="text-xs font-medium text-slate-400 uppercase tracking-wide px-1 pb-1">
               On duty now
             </div>
-            {phlebos.length === 0 && !loading && !needKey ? (
+            {onDuty.length === 0 && !loading ? (
               <div className="text-sm text-slate-400 px-1 py-4 text-center">
-                No phlebos currently on duty and sharing location
+                No phlebos currently on duty
               </div>
             ) : (
-              phlebos.map((p) => (
-                <button
-                  key={p._id}
-                  onClick={() => focusOn(p)}
-                  className={`w-full text-left rounded-lg px-3 py-2 text-sm transition-colors ${
-                    selected === p._id ? "bg-violet-50 text-violet-700" : "hover:bg-slate-50"
-                  }`}
-                >
-                  <div className="font-medium">{p.name}</div>
-                  <div className="text-xs text-slate-400">
-                    {p.zone || "—"} · updated {timeAgo(p.lastLocationAt)}
-                  </div>
-                </button>
-              ))
+              onDuty.map((p) => {
+                const pos = coordsOf(p);
+                return (
+                  <button
+                    key={p._id}
+                    onClick={() => focusOn(p)}
+                    disabled={!pos}
+                    className={`w-full text-left rounded-lg px-3 py-2 text-sm transition-colors ${
+                      selected === p._id ? "bg-violet-50 text-violet-700" : "hover:bg-slate-50"
+                    } ${!pos ? "opacity-70 cursor-default" : ""}`}
+                  >
+                    <div className="font-medium">{p.name}</div>
+                    <div className="text-xs text-slate-400">
+                      {p.zone || p.city || "—"} ·{" "}
+                      {pos ? `updated ${timeAgo(p.lastLocationAt)}` : "GPS not received yet — keep the app open with location on"}
+                    </div>
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
