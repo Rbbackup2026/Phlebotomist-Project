@@ -11,7 +11,7 @@ const Client = require("../Models/Client");
 const InventoryItem = require("../Models/InventoryItem");
 const KitAssignment = require("../Models/KitAssignment");
 const { saveAndNotify } = require("../services/webhook");
-const { scheduleLisBooking, pushJobToLis, applyAgeFields } = require("../services/lisBooking");
+const { scheduleLisBooking, pushJobToLis, applyAgeFields, reconcileLisIfStale } = require("../services/lisBooking");
 const onlinePayment = require("../services/onlinePayment");
 const {
   seedLisPanelsIfEmpty,
@@ -458,6 +458,18 @@ router.get(
     }
   }
 );
+
+router.get("/admin/orders/:id", verifyToken, attachScope, async (req, res) => {
+  try {
+    const order = await Order.findOne({ _id: req.params.id, ...req.scopeFilter });
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+    await reconcileLisIfStale(order);
+    const fresh = await Order.findById(order._id);
+    res.json({ success: true, order: fresh });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 // Free-city-traffic assumption for the "tight schedule" travel-time estimate below —
 // deliberately conservative (slow) so we warn early rather than late. Not meant to be

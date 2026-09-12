@@ -392,11 +392,44 @@ function errorMessage(data, httpStatus, raw) {
   return `LIS HTTP ${httpStatus} (empty body)`;
 }
 
+/**
+ * Purane orders pe pehli LIS call fail ho sakti thi, baad mein LIS mein save ho gaya.
+ * Phlebo DB mein `failed` stuck reh jata hai. Ledger / LIS status se sync karo.
+ */
+async function reconcileLisIfStale(job) {
+  if (!job) return job;
+  const ledger = String(job.lisLedgerNo || "").trim();
+  if (ledger) {
+    if (job.lisBookingStatus !== "success" || job.lisBookingError) {
+      job.lisBookingStatus = "success";
+      job.lisBookingError = "";
+      job.lisBookedAt = job.lisBookedAt || new Date();
+      await job.save();
+    }
+    return job;
+  }
+  if (!isReadyForLis(job)) return job;
+  const ids = [job.pickupId, job._id, job.lisBillId].map((v) => String(v || "").trim()).filter(Boolean);
+  const unique = [...new Set(ids)];
+  for (const id of unique) {
+    const found = await lookupLisStatus(id);
+    if (!found) continue;
+    applyLisSuccess(job, found);
+    if (String(job.lisLedgerNo || "").trim()) {
+      await job.save();
+      return job;
+    }
+  }
+  return job;
+}
+
 async function pushJobToLis(jobId, { force = false } = {}) {
   if (!bookingEnabled()) return { skipped: true, reason: "disabled" };
 
   const job = await Order.findById(jobId);
   if (!job) return { skipped: true, reason: "missing job" };
+
+  await reconcileLisIfStale(job);
 
   if (!force && job.lisBookingStatus === "success" && job.lisLedgerNo) {
     return { skipped: true, reason: "already booked", ledger: job.lisLedgerNo };
@@ -543,4 +576,5 @@ module.exports = {
   isReadyForLis,
   buildPayload,
   applyAgeFields,
+  reconcileLisIfStale,
 };

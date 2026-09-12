@@ -32,7 +32,7 @@ function toYmd(raw) {
 }
 
 function lisReallySaved(o) {
-  return String(o?.lisBookingStatus || "") === "success" && !!String(o?.lisLedgerNo || "").trim();
+  return !!String(o?.lisLedgerNo || "").trim();
 }
 
 function collectionsHref(slotDate, opts = {}) {
@@ -393,14 +393,27 @@ export default function Orders() {
   const openOrderFromList = async (orderId) => {
     if (!orderId) return;
     try {
-      const res = await adminApi.orders({ limit: 100 });
-      const found = (res.orders || []).find((o) => String(o._id) === String(orderId));
-      if (found) setDetailFor(found);
-      else alert("Order list mein nahi mila — filters clear karke search karo");
+      const res = await adminApi.getOrder(orderId);
+      if (res.order) setDetailFor(res.order);
+      else alert("Order nahi mila");
     } catch (e) {
       alert(e.message);
     }
   };
+
+  useEffect(() => {
+    if (!detailFor?._id) return;
+    let cancelled = false;
+    adminApi
+      .getOrder(detailFor._id)
+      .then((res) => {
+        if (!cancelled && res.order) setDetailFor(res.order);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [detailFor?._id]);
 
   async function addTestToDetail(item) {
     if (!detailFor) return;
@@ -1003,7 +1016,7 @@ export default function Orders() {
                   }
                 />
               </div>
-              {detailFor.lisBookingError ? (
+              {detailFor.lisBookingError && !lisReallySaved(detailFor) ? (
                 <div className="text-xs text-rose-700">{detailFor.lisBookingError}</div>
               ) : null}
               {detailFor.lisReportUrl ? (
