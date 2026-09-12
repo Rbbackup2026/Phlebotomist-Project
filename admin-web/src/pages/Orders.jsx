@@ -31,8 +31,14 @@ function toYmd(raw) {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 }
 
+function lisEmptyAck(o) {
+  return /HTTP 200 \(empty body\)/i.test(String(o?.lisBookingError || ""));
+}
+
 function lisReallySaved(o) {
-  return !!String(o?.lisLedgerNo || "").trim();
+  if (!!String(o?.lisLedgerNo || "").trim()) return true;
+  if (String(o?.lisBookingStatus || "") === "success") return true;
+  return lisEmptyAck(o);
 }
 
 function collectionsHref(slotDate, opts = {}) {
@@ -967,7 +973,7 @@ export default function Orders() {
               <Badge>{detailFor.paymentStatus}</Badge>
               {lisReallySaved(detailFor) ? (
                 <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 px-2.5 py-0.5 text-xs font-medium">
-                  LIS {detailFor.lisLedgerNo}
+                  {detailFor.lisLedgerNo ? `LIS ${detailFor.lisLedgerNo}` : "LIS saved"}
                 </span>
               ) : detailFor.lisBookingStatus === "failed" ? (
                 <span className="inline-flex items-center rounded-full bg-rose-50 text-rose-700 px-2.5 py-0.5 text-xs font-medium">
@@ -1009,7 +1015,9 @@ export default function Orders() {
                   label="Status"
                   value={
                     lisReallySaved(detailFor)
-                      ? "saved in LIS"
+                      ? detailFor.lisLedgerNo
+                        ? "saved in LIS"
+                        : "saved in LIS (Lab No not in response)"
                       : detailFor.lisBookingStatus === "success"
                         ? "not in Patient Detail"
                         : detailFor.lisBookingStatus || "not sent"

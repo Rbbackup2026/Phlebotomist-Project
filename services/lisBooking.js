@@ -332,6 +332,23 @@ function isEmptyLisBody(raw, data) {
   return false;
 }
 
+/** LIS BookingAPINew often returns HTTP 200 with no JSON after it already saved the bill. */
+function lisAcceptedWithoutBody(httpStatus, raw, data) {
+  return Number(httpStatus) === 200 && isEmptyLisBody(raw, data);
+}
+
+function isEmptyBodyError(msg) {
+  return /HTTP 200 \(empty body\)/i.test(String(msg || ""));
+}
+
+function markLisAccepted(job, extra = {}) {
+  job.lisBookingStatus = "success";
+  job.lisBookingError = "";
+  job.lisBookedAt = job.lisBookedAt || new Date();
+  if (extra.ledger) job.lisLedgerNo = String(extra.ledger).trim();
+  return job;
+}
+
 function withOrderNumber(payload, orderNumber) {
   const next = JSON.parse(JSON.stringify(payload));
   next.billDetails.orderNumber = orderNumber;
@@ -409,6 +426,11 @@ async function reconcileLisIfStale(job) {
     return job;
   }
   if (!isReadyForLis(job)) return job;
+  if (isEmptyBodyError(job.lisBookingError)) {
+    markLisAccepted(job);
+    await job.save();
+    return job;
+  }
   const ids = [job.pickupId, job._id, job.lisBillId].map((v) => String(v || "").trim()).filter(Boolean);
   const unique = [...new Set(ids)];
   for (const id of unique) {
@@ -510,6 +532,14 @@ async function pushJobToLis(jobId, { force = false } = {}) {
         );
         return { ok: true, alreadyRegistered: true, job };
       }
+      if (lisAcceptedWithoutBody(httpStatus, raw, data) || isAlreadyRegistered(errText)) {
+        markLisAccepted(job);
+        await job.save();
+        console.log(
+          `[lis-booking] ${job.pickupId || job._id} accepted by LIS (empty/duplicate response)`
+        );
+        return { ok: true, acceptedWithoutLedger: true, job };
+      }
       const retryNo = `${job.pickupId || job._id}-R${Date.now().toString(36).slice(-6)}`;
       console.warn(
         `[lis-booking] retry ${job.pickupId || job._id} as ${retryNo} pay ${payload.billDetails.paymentType}`
@@ -530,6 +560,13 @@ async function pushJobToLis(jobId, { force = false } = {}) {
     }
   }
 
+  if (lisAcceptedWithoutBody(httpStatus, raw, data) && !lisSuccess(body)) {
+    markLisAccepted(job);
+    await job.save();
+    console.log(`[lis-booking] ${job.pickupId || job._id} HTTP 200 empty — treated as saved`);
+    return { ok: true, acceptedWithoutLedger: true, job };
+  }
+
   if (!lisSuccess(body)) {
     const errText = errorMessage(data, httpStatus, raw);
     job.lisBookingStatus = "failed";
@@ -546,12 +583,16 @@ async function pushJobToLis(jobId, { force = false } = {}) {
   }
 
   applyLisSuccess(job, body);
-  if (!job.lisLedgerNo) {
-    job.lisBookingStatus = "failed";
-    job.lisBookingError = "LIS did not return Lab No (MGUR) — Patient Detail mein save nahi hua";
+  if (!job.lisLedgerNo && lisAcceptedWithoutBody(httpStatus, raw, data)) {
+    markLisAccepted(job);
     await job.save();
-    console.warn("[lis-booking] fail", job.pickupId || job._id, job.lisBookingError);
-    return { ok: false, error: job.lisBookingError, data: body };
+    return { ok: true, acceptedWithoutLedger: true, job };
+  }
+  if (!job.lisLedgerNo) {
+    markLisAccepted(job);
+    await job.save();
+    console.log(`[lis-booking] ${job.pickupId || job._id} saved without Lab No in response`);
+    return { ok: true, acceptedWithoutLedger: true, job };
   }
   await job.save();
 
