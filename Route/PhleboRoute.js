@@ -812,37 +812,6 @@ router.post("/admin/orders/:id/tests", verifyToken, requireRole("admin"), async 
   }
 });
 
-router.post("/admin/orders/:id/push-lis", verifyToken, requireRole("superadmin", "admin"), async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
-    if (req.user.role === "admin" && order.city !== req.user.city) {
-      return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
-    }
-    applyAgeFields(order, req.body);
-    await order.save();
-    const result = await pushJobToLis(order._id, { force: true });
-    const fresh = await Order.findById(order._id);
-    if (result.skipped && result.reason === "not collected+paid") {
-      return res.status(400).json({
-        success: false,
-        message: "Sample collect + payment ke baad hi LIS push hota hai",
-        job: fresh,
-      });
-    }
-    if (result.ok === false) {
-      return res.status(400).json({
-        success: false,
-        message: result.error || "LIS push failed",
-        job: fresh,
-      });
-    }
-    res.json({ success: true, result, job: fresh });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
 /**
  * Admin: galti se add hua extra test hatao.
  * Sirf items with addedByPhlebo=true (Ops / on-site extras) — original booking lock.

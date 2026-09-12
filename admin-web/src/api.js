@@ -115,8 +115,6 @@ export const adminApi = {
       method: "DELETE",
     }),
   linkedPatients: (orderId) => request(`/admin/orders/${orderId}/linked-patients`),
-  pushOrderToLis: (orderId, payload = {}) =>
-    request(`/admin/orders/${orderId}/push-lis`, { method: "POST", body: payload }),
   rescheduleOrder: (orderId, payload) =>
     request(`/admin/orders/${orderId}/reschedule`, { method: "PUT", body: payload }),
   cancelOrder: (orderId, reason) =>

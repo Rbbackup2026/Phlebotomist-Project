@@ -145,8 +145,6 @@ export default function Orders() {
   const [newOrderError, setNewOrderError] = useState("");
 
   const [addTestSaving, setAddTestSaving] = useState(false);
-  const [lisPushing, setLisPushing] = useState(false);
-  const [lisRetryAge, setLisRetryAge] = useState("");
 
   async function load(pageArg = page) {
     setLoading(true);
@@ -365,10 +363,6 @@ export default function Orders() {
   }
 
   useEffect(() => {
-    setLisRetryAge(detailFor?.age ? String(detailFor.age) : "");
-  }, [detailFor?._id, detailFor?.age]);
-
-  useEffect(() => {
     if (!detailFor?._id) {
       setLinkedPatients({ source: null, walkIns: [], siblings: [] });
       return;
@@ -419,27 +413,6 @@ export default function Orders() {
       alert(e.message);
     } finally {
       setAddTestSaving(false);
-    }
-  }
-
-  async function pushDetailToLis() {
-    if (!detailFor) return;
-    if (!lisRetryAge && !detailFor.age) {
-      alert("Patient age LIS ke liye zaroori hai");
-      return;
-    }
-    setLisPushing(true);
-    try {
-      const res = await adminApi.pushOrderToLis(detailFor._id, {
-        age: lisRetryAge,
-      });
-      setDetailFor(res.job);
-      await load();
-    } catch (e) {
-      alert(e.message);
-      if (e.data?.job) setDetailFor(e.data.job);
-    } finally {
-      setLisPushing(false);
     }
   }
 
@@ -956,7 +929,7 @@ export default function Orders() {
             <div className="grid grid-cols-2 gap-3">
               <Field label="Pickup ID" value={detailFor.pickupId} />
               <Field label="Patient" value={detailFor.patientName} />
-              <Field label="Age" value={detailFor.age || lisRetryAge || "—"} />
+              <Field label="Age" value={detailFor.age || "—"} />
               <Field label="Mobile" value={detailFor.mobileNumber} />
               <Field label="Source" value={displaySource(detailFor)} />
               <Field label="External order ID" value={detailFor.externalOrderId} />
@@ -1033,23 +1006,6 @@ export default function Orders() {
               {detailFor.lisBookingError ? (
                 <div className="text-xs text-rose-700">{detailFor.lisBookingError}</div>
               ) : null}
-              {detailFor.phleboStatus === "Sample Collected" ||
-              detailFor.phleboStatus === "Handed Off" ? (
-                <div>
-                  <label className="label">Patient age (LIS)</label>
-                  <input
-                    className="input"
-                    inputMode="numeric"
-                    maxLength={3}
-                    placeholder="Age in years"
-                    value={lisRetryAge}
-                    onChange={(e) =>
-                      setLisRetryAge(e.target.value.replace(/\D/g, "").slice(0, 3))
-                    }
-                    disabled={lisReallySaved(detailFor)}
-                  />
-                </div>
-              ) : null}
               {detailFor.lisReportUrl ? (
                 <a
                   href={detailFor.lisReportUrl}
@@ -1060,25 +1016,9 @@ export default function Orders() {
                   Open LIS report
                 </a>
               ) : null}
-              {detailFor.phleboStatus === "Sample Collected" ||
-              detailFor.phleboStatus === "Handed Off" ? (
-                <button
-                  type="button"
-                  className="btn-secondary text-xs"
-                  disabled={lisPushing || lisReallySaved(detailFor)}
-                  onClick={pushDetailToLis}
-                >
-                  {lisPushing
-                    ? "Sending…"
-                    : lisReallySaved(detailFor)
-                    ? "Saved in LIS"
-                    : "Push to LIS"}
-                </button>
-              ) : (
-                <div className="text-[11px] text-slate-500">
-                  Sample collect + payment ke baad auto LIS mein save hoga
-                </div>
-              )}
+              <div className="text-[11px] text-slate-500">
+                Sample collect + payment ke baad LIS mein auto save hota hai
+              </div>
             </div>
 
             {/* Same-address walk-in patients (phlebo “Add patient at this address”) */}
