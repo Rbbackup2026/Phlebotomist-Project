@@ -125,13 +125,33 @@ function ageFieldsFromBody(b) {
 }
 
 function recalcJobTotals(job) {
-  const total = (job.items || []).reduce(
+  const gross = (job.items || []).reduce(
     (sum, i) => sum + (Number(i.price) || 0) * (Number(i.quantity) || 1),
     0
   );
-  job.amount = total;
-  job.totalAmount = total;
-  return total;
+  let discount = Math.max(0, Number(job.discountAmount) || 0);
+  if (discount > gross) discount = gross;
+  job.discountAmount = discount;
+  const payable = Math.max(0, gross - discount);
+  job.amount = payable;
+  job.totalAmount = payable;
+  return payable;
+}
+
+function clampDiscount(gross, raw) {
+  const g = Math.max(0, Number(gross) || 0);
+  let d = Math.max(0, Number(raw) || 0);
+  if (d > g) d = g;
+  return d;
+}
+
+function payableFromItems(items, discountRaw) {
+  const gross = (items || []).reduce(
+    (s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 1),
+    0
+  );
+  const discount = clampDiscount(gross, discountRaw);
+  return { gross, discount, payable: Math.max(0, gross - discount) };
 }
 
 /** Cash jo phlebo ne collect kiya hai par abhi tak office/lab ko hand over (settle) nahi kiya */
@@ -244,6 +264,11 @@ const formatJob = (order, { mask = false } = {}) => {
     slotTime: o.slotTime,
     items: o.items || [],
     amount: o.totalAmount,
+    discountAmount: Number(o.discountAmount) || 0,
+    grossAmount: (o.items || []).reduce(
+      (s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 1),
+      0
+    ),
     paymentMethod: o.paymentMethod,
     paymentStatus: o.paymentStatus,
     status: o.status,
@@ -654,7 +679,11 @@ router.post("/admin/orders", verifyToken, requireRole("admin"), async (req, res)
         }))
       : [];
     const itemsTotal = items.reduce((s, i) => s + i.price * i.quantity, 0);
-    const amount = itemsTotal || Number(b.amount) || 0;
+    const baseAmount = itemsTotal || Number(b.amount) || 0;
+    const { discount, payable } = payableFromItems(
+      items.length ? items : [{ price: baseAmount, quantity: 1 }],
+      b.discountAmount
+    );
     const geo = await coordsForAddress(String(b.address).trim(), b.lat, b.lng);
     const hasCoords = geo.lat != null && geo.lng != null;
     const [pickupId, trackingToken] = await Promise.all([
@@ -684,8 +713,9 @@ router.post("/admin/orders", verifyToken, requireRole("admin"), async (req, res)
       geocodedAt: hasCoords ? new Date() : null,
       slotDate: String(b.slotDate).trim(),
       slotTime: String(b.slotTime).trim(),
-      amount,
-      totalAmount: amount,
+      discountAmount: discount,
+      amount: payable,
+      totalAmount: payable,
       status: "Booked",
       paymentMethod: b.paymentMethod || "COD",
       paymentStatus: "Unpaid",
@@ -2170,7 +2200,7 @@ router.post("/phlebo/jobs/create-direct", verifyPhlebo, async (req, res) => {
       return res.status(400).json({ success: false, message: "At least one test is required" });
     }
 
-    const amount = items.reduce((s, i) => s + i.price * i.quantity, 0);
+    const { discount, payable } = payableFromItems(items, b.discountAmount);
     const city = String(b.city || req.phlebo.city || "").trim();
     const geo = await coordsForAddress(address, b.lat, b.lng);
     const hasCoords = geo.lat != null && geo.lng != null;
@@ -2201,8 +2231,9 @@ router.post("/phlebo/jobs/create-direct", verifyPhlebo, async (req, res) => {
       geocodedAt: hasCoords ? new Date() : null,
       slotDate,
       slotTime,
-      amount,
-      totalAmount: amount,
+      discountAmount: discount,
+      amount: payable,
+      totalAmount: payable,
       status: "Booked",
       paymentMethod: b.paymentMethod || "COD",
       paymentStatus: "Unpaid",
@@ -2527,7 +2558,7 @@ router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
       addedAt: new Date(),
     }));
 
-    const amount = cleanItems.reduce((s, i) => s + i.price * i.quantity, 0);
+    const { discount, payable } = payableFromItems(cleanItems, req.body?.discountAmount);
     const [pickupId, trackingToken] = await Promise.all([
       generatePickupId(),
       generateTrackingToken(),
@@ -2558,8 +2589,9 @@ router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
       ...ageFieldsFromBody(req.body),
       specialInstructions: specialInstructions || "",
       items: cleanItems,
-      amount,
-      totalAmount: amount,
+      discountAmount: discount,
+      amount: payable,
+      totalAmount: payable,
       paymentMethod: paymentMethod || sourceJob.paymentMethod || "COD",
       paymentStatus: "Unpaid",
       status: "Booked",

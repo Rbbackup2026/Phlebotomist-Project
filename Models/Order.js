@@ -60,6 +60,8 @@ const orderSchema = new mongoose.Schema(
     slotTime: { type: String, trim: true, required: true },
     amount: { type: Number },
     totalAmount: { type: Number },
+    /** ₹ off list price (gross − discount = totalAmount). Sent to LIS as DiscountAmt. */
+    discountAmount: { type: Number, default: 0 },
     status: { type: String, default: "Booked", trim: true },
     paymentMethod: { type: String, default: "COD", trim: true },
     paymentStatus: { type: String, default: "Unpaid", trim: true },

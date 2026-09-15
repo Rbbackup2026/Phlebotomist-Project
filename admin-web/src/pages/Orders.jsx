@@ -64,6 +64,7 @@ const emptyNewOrder = {
   slotTime: "",
   paymentMethod: "COD",
   specialInstructions: "",
+  discountAmount: "",
 };
 
 const STATUS_OPTIONS = ["All", "Booked", "Sample Collected", "Processing", "Cancelled"];
@@ -340,10 +341,15 @@ export default function Orders() {
     setNewOrderItems((list) => list.filter((_, i) => i !== idx));
   }
 
-  const newOrderTotal = newOrderItems.reduce(
+  const newOrderGross = newOrderItems.reduce(
     (s, i) => s + (i.price || 0) * (i.quantity || 1),
     0
   );
+  const newOrderDiscount = Math.min(
+    Math.max(0, Number(newOrder.discountAmount) || 0),
+    newOrderGross
+  );
+  const newOrderTotal = Math.max(0, newOrderGross - newOrderDiscount);
 
   async function submitNewOrder(e) {
     e.preventDefault();
@@ -356,9 +362,16 @@ export default function Orders() {
     if (!newOrder.patientName || !newOrder.address || !newOrder.slotDate || !newOrder.slotTime) {
       return setNewOrderError("Patient name, address, and slot date/time are required");
     }
+    if (Number(newOrder.discountAmount) > newOrderGross) {
+      return setNewOrderError("Discount cannot exceed tests total");
+    }
     setNewOrderSaving(true);
     try {
-      await adminApi.createOrder({ ...newOrder, items: newOrderItems });
+      await adminApi.createOrder({
+        ...newOrder,
+        items: newOrderItems,
+        discountAmount: newOrderDiscount,
+      });
       setShowNewOrder(false);
       await load();
     } catch (e2) {
@@ -953,7 +966,14 @@ export default function Orders() {
               <Field label="Source" value={displaySource(detailFor)} />
               <Field label="External order ID" value={detailFor.externalOrderId} />
               <Field label="Slot" value={`${detailFor.slotDate} · ${detailFor.slotTime}`} />
-              <Field label="Amount" value={`₹${detailFor.totalAmount ?? detailFor.amount ?? 0}`} />
+              <Field
+                label="Amount"
+                value={
+                  Number(detailFor.discountAmount) > 0
+                    ? `₹${detailFor.totalAmount ?? detailFor.amount ?? 0} (discount −₹${detailFor.discountAmount})`
+                    : `₹${detailFor.totalAmount ?? detailFor.amount ?? 0}`
+                }
+              />
             </div>
             <Field label="Address" value={`${detailFor.address}, ${detailFor.area || ""} ${detailFor.city || ""} ${detailFor.pincode || ""}`} />
             <div className="flex flex-wrap gap-2">
@@ -1553,8 +1573,26 @@ export default function Orders() {
                     </div>
                   </div>
                 ))}
-                <div className="text-right text-xs font-semibold text-slate-700 pt-1">
-                  Total: ₹{newOrderTotal}
+                <div className="text-right text-xs font-semibold text-slate-700 pt-1 space-y-1">
+                  <div>Tests total: ₹{newOrderGross}</div>
+                  <div className="flex items-center justify-end gap-2 font-normal">
+                    <label className="text-slate-500">Discount option ₹</label>
+                    <input
+                      className="input w-24 py-1 text-right"
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="0"
+                      value={newOrder.discountAmount}
+                      onChange={(e) =>
+                        setNewOrder({ ...newOrder, discountAmount: e.target.value })
+                      }
+                    />
+                  </div>
+                  {newOrderDiscount > 0 ? (
+                    <div className="text-emerald-700 font-medium">Discount: −₹{newOrderDiscount}</div>
+                  ) : null}
+                  <div>Payable: ₹{newOrderTotal}</div>
                 </div>
               </div>
             ) : null}

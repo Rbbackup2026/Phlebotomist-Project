@@ -266,6 +266,27 @@ function buildTestList(job) {
       DiscountAmt: 0,
     });
   }
+
+  // Order-level discount → LIS per-test DiscountAmt (proportional; remainder on last row)
+  let remaining = Math.max(0, Number(job.discountAmount) || 0);
+  if (remaining > 0 && rows.length) {
+    const gross = rows.reduce((s, r) => s + (Number(r.Rate) || 0), 0);
+    if (gross > 0) {
+      let allocated = 0;
+      for (let i = 0; i < rows.length; i++) {
+        const isLast = i === rows.length - 1;
+        let share;
+        if (isLast) {
+          share = Math.max(0, remaining - allocated);
+        } else {
+          share = Math.round(((Number(rows[i].Rate) || 0) / gross) * remaining);
+          allocated += share;
+        }
+        if (share > Number(rows[i].Rate)) share = Number(rows[i].Rate);
+        rows[i].DiscountAmt = share;
+      }
+    }
+  }
   return rows;
 }
 
