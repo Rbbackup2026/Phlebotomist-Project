@@ -80,6 +80,28 @@ function isDemoOtp(otp) {
   return allowDemoOtp() && String(otp || "").trim() === DEMO_OTP;
 }
 
+/** 10-digit numbers Google Play reviewers use. SMS is skipped; PLAY_REVIEWER_OTP is accepted. */
+function reviewerPhones() {
+  return String(process.env.PLAY_REVIEWER_PHONES || process.env.REVIEWER_PHONES || "")
+    .split(/[,\s]+/)
+    .map((s) => String(s).replace(/\D/g, "").slice(-10))
+    .filter((s) => s.length === 10);
+}
+
+function isReviewerPhone(phone) {
+  const p = String(phone || "").replace(/\D/g, "").slice(-10);
+  return p.length === 10 && reviewerPhones().includes(p);
+}
+
+function getReviewerOtp() {
+  const otp = String(process.env.PLAY_REVIEWER_OTP || DEMO_OTP).trim();
+  return /^\d{4,8}$/.test(otp) ? otp : DEMO_OTP;
+}
+
+function isReviewerBypassOtp(phone, otp) {
+  return isReviewerPhone(phone) && String(otp || "").trim() === getReviewerOtp();
+}
+
 /**
  * CORS origins from CORS_ORIGINS (comma-separated).
  * Empty in development → reflect request origin (cors origin: true-ish via callback).
@@ -125,6 +147,9 @@ module.exports = {
   allowDemoOtp,
   DEMO_OTP,
   isDemoOtp,
+  isReviewerPhone,
+  getReviewerOtp,
+  isReviewerBypassOtp,
   getCorsOriginOption,
   assertSecurityConfig,
 };

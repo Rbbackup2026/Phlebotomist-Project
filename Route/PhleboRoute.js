@@ -39,6 +39,9 @@ const {
   allowDemoOtp,
   DEMO_OTP,
   isDemoOtp,
+  isReviewerPhone,
+  getReviewerOtp,
+  isReviewerBypassOtp,
   isProduction,
 } = require("../services/securityConfig");
 const { deliverOtp, toTenDigitMobile } = require("../services/sms");
@@ -1584,8 +1587,10 @@ router.post("/phlebo/auth/otp/send", async (req, res) => {
       return res.status(403).json({ success: false, message: "Account inactive — contact your admin" });
     }
 
-    const otp =
-      allowDemoOtp()
+    const reviewer = isReviewerPhone(phone);
+    const otp = reviewer
+      ? getReviewerOtp()
+      : allowDemoOtp()
         ? DEMO_OTP
         : crypto.randomInt(100000, 999999).toString();
 
@@ -1593,15 +1598,17 @@ router.post("/phlebo/auth/otp/send", async (req, res) => {
     phlebo.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
     await phlebo.save();
 
-    try {
-      await deliverOtp(phone, otp, "login", { name: phlebo.name });
-    } catch (smsErr) {
-      return res.status(smsErr.status || 502).json({
-        success: false,
-        message: smsErr.message
-          ? `Could not send OTP SMS: ${String(smsErr.message).slice(0, 180)}`
-          : "Could not send OTP SMS. Try again.",
-      });
+    if (!reviewer) {
+      try {
+        await deliverOtp(phone, otp, "login", { name: phlebo.name });
+      } catch (smsErr) {
+        return res.status(smsErr.status || 502).json({
+          success: false,
+          message: smsErr.message
+            ? `Could not send OTP SMS: ${String(smsErr.message).slice(0, 180)}`
+            : "Could not send OTP SMS. Try again.",
+        });
+      }
     }
 
     if (!isProduction()) {
@@ -1630,7 +1637,8 @@ router.post("/phlebo/auth/otp/verify", async (req, res) => {
 
     const valid =
       (phlebo.otp && phlebo.otp === otp && phlebo.otpExpires && phlebo.otpExpires > new Date()) ||
-      isDemoOtp(otp);
+      isDemoOtp(otp) ||
+      isReviewerBypassOtp(phone, otp);
 
     if (!valid) {
       return res.status(400).json({ success: false, message: "Invalid or expired OTP" });

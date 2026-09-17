@@ -25,7 +25,6 @@ function isLisEndpoint(url) {
   if (/\/v1\/api$/i.test(u)) return false;
   if (DEFAULT_LIS_URL && u === DEFAULT_LIS_URL.toLowerCase()) return true;
   if (/lis|ratelist|getitem|itemrate|get_item|getitems/i.test(u)) return true;
-  // Explicit provider flag only when URL is not the legacy Wello base shape
   if (String(process.env.CATALOG_PROVIDER || "").toLowerCase() === "lis") return true;
   return false;
 }
@@ -175,7 +174,6 @@ async function httpJson(url, { method = "GET", body, contentType, timeoutMs = 20
 function lisRequestBody() {
   const raw = String(process.env.LIS_CATALOG_REQUEST_BODY || "").trim();
   if (raw) {
-    // support both JSON object and raw form string: PanelID=78
     if (raw.includes("=") && !raw.trim().startsWith("{")) {
       return raw;
     }
@@ -201,7 +199,6 @@ async function fetchFromWello(base, { city } = {}) {
 }
 
 async function fetchFromLis(endpoint, { city } = {}) {
-  // MDRC GetItemListPanel: POST + form-urlencoded PanelID=78 (JSON body returns [])
   const method = String(process.env.LIS_CATALOG_HTTP_METHOD || "POST").toUpperCase();
   const contentType =
     process.env.LIS_CATALOG_CONTENT_TYPE ||
@@ -225,7 +222,6 @@ async function fetchFromLis(endpoint, { city } = {}) {
   return rows;
 }
 
-/** Recent bookings se unique tests — catalog down ho to phlebo phir bhi search kar sake. */
 async function fallbackCatalogFromJobs(client, { city, search } = {}) {
   if (!client?._id) return { tests: [], catalogScope: "none", total: 0 };
 
@@ -293,7 +289,6 @@ async function fetchRawCatalog(endpoint, { city } = {}) {
     return { rawProducts: rows, catalogScope: "all" };
   }
 
-  // Legacy Wello
   if (cityName) {
     for (const tryCity of cityFallbacks(cityName)) {
       const rows = await fetchFromWello(endpoint, { city: tryCity });
