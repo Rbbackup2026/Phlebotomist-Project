@@ -19,7 +19,7 @@ const phlebotomistSchema = new mongoose.Schema(
       },
     },
     employeeId: { type: String, trim: true, default: "", unique: true, sparse: true },
-    /** LIS PUPMasterData.Panel_ID / Panel_Code — BookingAPINew isi client code pe bill daalti hai */
+    /** LIS PUPMasterData.Panel_ID — lab client code. Kai phlebos same code share kar sakte hain. */
     lisPanelId: { type: String, trim: true, default: "", index: true },
     /** LIS PUPMasterData.CentreID (0 / 1 …) */
     lisCentreId: { type: String, trim: true, default: "1" },

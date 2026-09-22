@@ -354,20 +354,6 @@ const formatJob = (order, { mask = false } = {}) => {
   };
 };
 
-async function assertLisPanelFree(lisPanelId, exceptId) {
-  const code = String(lisPanelId || "").trim();
-  if (!code) return;
-  const filter = { lisPanelId: code };
-  if (exceptId) filter._id = { $ne: exceptId };
-  const clash = await Phlebotomist.findOne(filter).select("name phone lisPanelId");
-  if (clash) {
-    const err = new Error(
-      `LIS client code ${code} already on ${clash.name} (${clash.phone})`
-    );
-    err.status = 400;
-    throw err;
-  }
-}
 
 // ─── Ops: list jobs (Phlebo own DB; multi-website via clientId) ──────────────
 
@@ -919,10 +905,59 @@ router.delete(
   }
 );
 
-router.get("/admin/clients", verifyToken, async (_req, res) => {
+router.get("/admin/clients", verifyToken, async (req, res) => {
   try {
-    const clients = await Client.find().sort({ name: 1 }).select("-webhookSecret");
+    const hideSecret = req.user.role !== "superadmin";
+    const clients = await Client.find()
+      .sort({ name: 1 })
+      .select(hideSecret ? "-webhookSecret" : "");
     res.json({ success: true, clients });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/admin/clients", verifyToken, requireRole("superadmin"), async (req, res) => {
+  try {
+    const { name, slug, webhookUrl, contactEmail, catalogApiUrl } = req.body || {};
+    if (!name || !slug) {
+      return res.status(400).json({ success: false, message: "name and slug required" });
+    }
+    const normalized = String(slug).toLowerCase().trim();
+    const exists = await Client.findOne({ slug: normalized });
+    if (exists) {
+      return res.status(400).json({ success: false, message: "Is slug ka client pehle se hai" });
+    }
+    const client = await Client.create({
+      name: String(name).trim(),
+      slug: normalized,
+      webhookUrl: webhookUrl || "",
+      contactEmail: contactEmail || "",
+      catalogApiUrl: catalogApiUrl || "",
+      notes: "Created from Admin Clients",
+    });
+    res.status(201).json({
+      success: true,
+      message: "CRM / partner client created",
+      client,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.put("/admin/clients/:id", verifyToken, requireRole("superadmin"), async (req, res) => {
+  try {
+    const client = await Client.findById(req.params.id);
+    if (!client) return res.status(404).json({ success: false, message: "Client not found" });
+    const b = req.body || {};
+    if (b.name) client.name = String(b.name).trim();
+    if (b.webhookUrl != null) client.webhookUrl = String(b.webhookUrl).trim();
+    if (b.contactEmail != null) client.contactEmail = String(b.contactEmail).trim();
+    if (b.catalogApiUrl != null) client.catalogApiUrl = String(b.catalogApiUrl).trim();
+    if (b.status === "active" || b.status === "inactive") client.status = b.status;
+    await client.save();
+    res.json({ success: true, message: "Client updated", client });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1025,7 +1060,6 @@ router.post("/admin/phlebos", verifyToken, requireRole("superadmin", "admin"), a
         employeeId: resolvedEmployeeId,
         phone: String(phone).trim(),
       });
-      await assertLisPanelFree(resolvedLisPanelId);
     } catch (idErr) {
       return res.status(idErr.status || 400).json({ success: false, message: idErr.message });
     }
@@ -4016,15 +4050,7 @@ router.put("/admin/phlebos/:id", verifyToken, requireRole("superadmin", "admin")
     // City Admin apne phlebo ko doosre city mein shift nahi kar sakta (sirf superadmin).
     if (city !== undefined && req.user.role === "superadmin") phlebo.city = String(city).trim();
     if (employeeId !== undefined) phlebo.employeeId = String(employeeId).trim();
-    if (lisPanelId !== undefined) {
-      const code = String(lisPanelId).trim();
-      try {
-        await assertLisPanelFree(code, phlebo._id);
-      } catch (idErr) {
-        return res.status(idErr.status || 400).json({ success: false, message: idErr.message });
-      }
-      phlebo.lisPanelId = code;
-    }
+    if (lisPanelId !== undefined) phlebo.lisPanelId = String(lisPanelId).trim();
     if (lisCentreId !== undefined) phlebo.lisCentreId = String(lisCentreId).trim() || "1";
     if (lisCompanyName !== undefined) phlebo.lisCompanyName = String(lisCompanyName).trim();
     if (servesAllClients !== undefined) phlebo.servesAllClients = !!servesAllClients;

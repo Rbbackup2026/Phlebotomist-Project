@@ -94,7 +94,7 @@ function LisClientBox({ form, setForm, fillName, lisTotal, onImported }) {
       <div className="text-xs font-semibold text-violet-800">LIS client (PUPMasterData)</div>
       <p className="text-[11px] text-violet-700">
         {lisTotal
-          ? `${lisTotal} LIS clients loaded — naam ya Panel_ID search karo (jaise Yogesh / 3191).`
+          ? `${lisTotal} LIS clients loaded — lab ka Panel_ID search karo. Same code kai phlebos pe lag sakta hai.`
           : "LIS list load nahi hui — backend restart karo."}
       </p>
       <label className="btn-secondary !py-1.5 text-xs cursor-pointer inline-flex">
