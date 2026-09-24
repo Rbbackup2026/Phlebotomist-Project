@@ -174,15 +174,39 @@ app.use((err, _req, res, _next) => {
 // Mongo connection ke baad bhi kabhi network hiccup se 'error' event aa sakta
 // hai — agar iske liye koi listener na ho to Node isko throw kar deta hai aur
 // process crash ho jaata hai. Listener laga ke sirf log karte hain.
+function logMongo(event, extra) {
+  const state = mongoose.connection.readyState;
+  const pool =
+    mongoose.connection.client?.topology?.s?.servers?.size ??
+    null;
+  console.warn(
+    `[mongo] ${event} readyState=${state}` +
+      (pool != null ? ` monitoredServers=${pool}` : "") +
+      (extra ? ` ${extra}` : "")
+  );
+}
+
+mongoose.connection.on("connected", () => logMongo("connected"));
+mongoose.connection.on("reconnected", () => logMongo("reconnected"));
 mongoose.connection.on("error", (err) => {
-  console.error("[mongo] connection error:", err.message);
+  logMongo("error", `name=${err?.name || "Error"}`);
 });
 mongoose.connection.on("disconnected", () => {
-  console.warn("[mongo] disconnected — mongoose will retry automatically");
+  logMongo("disconnected");
 });
 
 async function start() {
-  await mongoose.connect(MONGO_URI);
+  // Pool stays at the driver default. Do not raise maxPoolSize — 29 sockets
+  // are already open and the process is idle, so this is not pool exhaustion.
+  // Timeouts are only so a dead host fails fast; they do not hide disconnects.
+  await mongoose.connect(MONGO_URI, {
+    serverSelectionTimeoutMS: 10000,
+    connectTimeoutMS: 10000,
+    socketTimeoutMS: 45000,
+    heartbeatFrequencyMS: 10000,
+    minPoolSize: 2,
+    retryWrites: true,
+  });
   console.log("Connected DB:", mongoose.connection.name);
   await seedPlatform();
 

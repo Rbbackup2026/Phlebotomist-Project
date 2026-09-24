@@ -392,10 +392,41 @@ router.get("/admin/orders", verifyToken, attachScope, async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
     const pageNum = Math.max(1, Number(page) || 1);
     const skip = (pageNum - 1) * limitNum;
+    // List is a table. Full documents include consent.signatureData (up to ~500KB
+    // each) and any legacy data: photo blobs, which made 20 rows ~3.6MB over the
+    // Atlas link. Detail still loads the full order via GET /admin/orders/:id.
     const [total, orders] = await Promise.all([
       Order.countDocuments(filter),
-      Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+      Order.find(filter)
+        .select("-consent.signatureData")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
     ]);
+    for (const order of orders) {
+      for (const sample of order.samples || []) {
+        if (typeof sample.photoUrl === "string" && sample.photoUrl.startsWith("data:")) {
+          sample.photoUrl = "";
+        }
+        if (Array.isArray(sample.photoUrls)) {
+          sample.photoUrls = sample.photoUrls.filter(
+            (u) => typeof u === "string" && u && !u.startsWith("data:")
+          );
+        }
+      }
+      const handover = order.handover;
+      if (handover) {
+        if (typeof handover.bagPhotoUrl === "string" && handover.bagPhotoUrl.startsWith("data:")) {
+          handover.bagPhotoUrl = "";
+        }
+        if (Array.isArray(handover.bagPhotoUrls)) {
+          handover.bagPhotoUrls = handover.bagPhotoUrls.filter(
+            (u) => typeof u === "string" && u && !u.startsWith("data:")
+          );
+        }
+      }
+    }
     const totalPages = Math.max(1, Math.ceil(total / limitNum));
     res.json({
       success: true,
