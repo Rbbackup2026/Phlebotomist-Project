@@ -275,7 +275,21 @@ function mapRawRows(rawProducts, city) {
   return rawProducts.map((p) => mapWelloProduct(p, city));
 }
 
+const rawCatalogCache = new Map();
+const RAW_CATALOG_TTL_MS = 10 * 60 * 1000;
+
 async function fetchRawCatalog(endpoint, { city } = {}) {
+  const cacheKey = `${endpoint}|${String(city || "").trim().toLowerCase()}`;
+  const hit = rawCatalogCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < RAW_CATALOG_TTL_MS) return hit.value;
+  const value = await fetchRawCatalogLive(endpoint, { city });
+  if (value.rawProducts?.length) {
+    rawCatalogCache.set(cacheKey, { at: Date.now(), value });
+  }
+  return value;
+}
+
+async function fetchRawCatalogLive(endpoint, { city } = {}) {
   const cityName = String(city || "").trim();
 
   if (isLisEndpoint(endpoint)) {

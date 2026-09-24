@@ -1,4 +1,5 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
@@ -491,13 +492,74 @@ router.get(
   }
 );
 
+function blankDataUrl(fieldExpr) {
+  return {
+    $cond: [
+      { $regexMatch: { input: { $ifNull: [fieldExpr, ""] }, regex: "^data:" } },
+      "",
+      { $ifNull: [fieldExpr, ""] },
+    ],
+  };
+}
+
+function keepShortUrls(fieldExpr) {
+  return {
+    $filter: {
+      input: { $ifNull: [fieldExpr, []] },
+      as: "u",
+      cond: {
+        $and: [
+          { $ne: ["$$u", ""] },
+          { $not: { $regexMatch: { input: "$$u", regex: "^data:" } } },
+        ],
+      },
+    },
+  };
+}
+
 router.get("/admin/orders/:id", verifyToken, attachScope, async (req, res) => {
   try {
-    const order = await Order.findOne({ _id: req.params.id, ...req.scopeFilter });
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+    const [order] = await Order.aggregate([
+      { $match: { _id: new mongoose.Types.ObjectId(req.params.id), ...req.scopeFilter } },
+      {
+        $set: {
+          "consent.signatureData": "",
+          trfPhotoUrl: blankDataUrl("$trfPhotoUrl"),
+          trfPhotoUrls: keepShortUrls("$trfPhotoUrls"),
+          collectionPhotoUrl: blankDataUrl("$collectionPhotoUrl"),
+          collectionPhotoUrls: keepShortUrls("$collectionPhotoUrls"),
+          "handover.bagPhotoUrl": blankDataUrl("$handover.bagPhotoUrl"),
+          "handover.bagPhotoUrls": keepShortUrls("$handover.bagPhotoUrls"),
+          samples: {
+            $map: {
+              input: { $ifNull: ["$samples", []] },
+              as: "s",
+              in: {
+                $mergeObjects: [
+                  "$$s",
+                  {
+                    photoUrl: blankDataUrl("$$s.photoUrl"),
+                    photoUrls: keepShortUrls("$$s.photoUrls"),
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    ]);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
-    await reconcileLisIfStale(order);
-    const fresh = await Order.findById(order._id);
-    res.json({ success: true, order: fresh });
+    // LIS sync can take several seconds. Do it after the response so one
+    // order view does not freeze the rest of the admin.
+    setImmediate(() => {
+      Order.findById(order._id)
+        .then((doc) => (doc ? reconcileLisIfStale(doc) : null))
+        .catch(() => {});
+    });
+    res.json({ success: true, order });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
