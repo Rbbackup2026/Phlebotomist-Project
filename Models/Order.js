@@ -131,7 +131,7 @@ const orderSchema = new mongoose.Schema(
     },
     rejectedReason: { type: String, default: "", trim: true },
     /** Who set status=Cancelled — phlebo vs admin (master cancel). */
-    cancelledBy: { type: String, enum: ["", "phlebo", "admin"], default: "", trim: true },
+    cancelledBy: { type: String, enum: ["", "phlebo", "admin", "partner"], default: "", trim: true },
     cancelledByName: { type: String, default: "", trim: true },
     cancelledAt: { type: Date, default: null },
     cancelReason: { type: String, default: "", trim: true },
@@ -275,5 +275,11 @@ const orderSchema = new mongoose.Schema(
 );
 
 orderSchema.index({ clientId: 1, externalOrderId: 1 }, { unique: true });
+// Admin list/dashboard filter by date and sort newest-first. City admin and lab
+// scopes add city / assignedLab. Phlebo detail counts by assignedPhlebo.
+orderSchema.index({ createdAt: -1 });
+orderSchema.index({ city: 1, createdAt: -1 });
+orderSchema.index({ assignedLab: 1, createdAt: -1 });
+orderSchema.index({ assignedPhlebo: 1, phleboStatus: 1 });
 
 module.exports = mongoose.model("Order", orderSchema);
