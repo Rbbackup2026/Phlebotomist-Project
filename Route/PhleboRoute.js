@@ -3926,19 +3926,18 @@ router.get("/admin/phlebos/:id", verifyToken, requireRole("superadmin", "admin")
       return res.status(403).json({ success: false, message: "Ye phlebo aapke city ka nahi hai" });
     }
 
-    const orders = await Order.find({ assignedPhlebo: phlebo._id });
+    const statusRows = await Order.aggregate([
+      { $match: { assignedPhlebo: phlebo._id } },
+      { $group: { _id: "$phleboStatus", n: { $sum: 1 } } },
+    ]);
+    const statusCount = (names) =>
+      statusRows.reduce((sum, row) => (names.includes(row._id) ? sum + row.n : sum), 0);
     const stats = {
-      totalJobs: orders.length,
-      completed: orders.filter((o) =>
-        ["Sample Collected", "Handed Off"].includes(o.phleboStatus)
-      ).length,
-      pending: orders.filter((o) => o.phleboStatus === "Assigned").length,
-      active: orders.filter((o) =>
-        ["Accepted", "En Route", "Arrived", "OTP Verified", "Consent Done"].includes(
-          o.phleboStatus
-        )
-      ).length,
-      rejected: orders.filter((o) => o.phleboStatus === "Rejected").length,
+      totalJobs: statusRows.reduce((sum, row) => sum + row.n, 0),
+      completed: statusCount(["Sample Collected", "Handed Off"]),
+      pending: statusCount(["Assigned"]),
+      active: statusCount(["Accepted", "En Route", "Arrived", "OTP Verified", "Consent Done"]),
+      rejected: statusCount(["Rejected"]),
     };
 
     const cash = await getCashSummary(phlebo._id);
