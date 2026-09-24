@@ -656,7 +656,7 @@ export default function Orders() {
                             type="button"
                             className="text-left rounded-lg hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-rose-200"
                             title={`Cancelled by ${cancelledBy.role}${cancelledBy.name !== "—" ? ` (${cancelledBy.name})` : ""} — click for details`}
-                            onClick={() => setDetailFor(o)}
+                            onClick={() => openOrderFromList(o._id)}
                           >
                             <Badge>Cancelled</Badge>
                             <div className="text-[10px] text-rose-600 mt-0.5 font-medium">
@@ -681,7 +681,7 @@ export default function Orders() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-2">
-                          <button className="btn-secondary" onClick={() => setDetailFor(o)}>
+                          <button className="btn-secondary" onClick={() => openOrderFromList(o._id)}>
                             View
                           </button>
                           {canManage ? (

@@ -395,38 +395,20 @@ router.get("/admin/orders", verifyToken, attachScope, async (req, res) => {
     // List is a table. Full documents include consent.signatureData (up to ~500KB
     // each) and any legacy data: photo blobs, which made 20 rows ~3.6MB over the
     // Atlas link. Detail still loads the full order via GET /admin/orders/:id.
+    const LIST_FIELDS =
+      "pickupId patientName mobileNumber slotDate slotTime status phleboStatus paymentStatus paymentMethod " +
+      "assignedPhlebo assignedPhleboName assignedLab assignedLabName clientName clientSlug clientId " +
+      "isRedraw walkInSourceJobId createdBySource createdByPhleboName rescheduleRequested " +
+      "cancelledBy cancelledByName cancelReason city totalAmount amount items createdAt externalOrderId";
     const [total, orders] = await Promise.all([
       Order.countDocuments(filter),
       Order.find(filter)
-        .select("-consent.signatureData")
+        .select(LIST_FIELDS)
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum)
         .lean(),
     ]);
-    for (const order of orders) {
-      for (const sample of order.samples || []) {
-        if (typeof sample.photoUrl === "string" && sample.photoUrl.startsWith("data:")) {
-          sample.photoUrl = "";
-        }
-        if (Array.isArray(sample.photoUrls)) {
-          sample.photoUrls = sample.photoUrls.filter(
-            (u) => typeof u === "string" && u && !u.startsWith("data:")
-          );
-        }
-      }
-      const handover = order.handover;
-      if (handover) {
-        if (typeof handover.bagPhotoUrl === "string" && handover.bagPhotoUrl.startsWith("data:")) {
-          handover.bagPhotoUrl = "";
-        }
-        if (Array.isArray(handover.bagPhotoUrls)) {
-          handover.bagPhotoUrls = handover.bagPhotoUrls.filter(
-            (u) => typeof u === "string" && u && !u.startsWith("data:")
-          );
-        }
-      }
-    }
     const totalPages = Math.max(1, Math.ceil(total / limitNum));
     res.json({
       success: true,
@@ -1159,17 +1141,56 @@ router.get("/admin/phlebos", verifyToken, requireRole("superadmin", "admin"), as
   try {
     const cityFilter = req.user.role === "admin" ? { city: req.user.city } : {};
     const phlebos = await Phlebotomist.find(cityFilter).sort({ name: 1 }).select("-passwordHash -otp");
+    const phleboIds = phlebos.map((p) => p._id);
 
-    const cashAgg = await Order.aggregate([
-      {
-        $match: {
-          paymentCollectedBy: { $ne: null },
-          paymentCollectedMethod: { $regex: /^cash$/i },
-          paymentStatus: "Paid",
-          cashSettled: false,
+    const [cashAgg, jobAgg] = await Promise.all([
+      Order.aggregate([
+        {
+          $match: {
+            paymentCollectedBy: { $in: phleboIds },
+            paymentCollectedMethod: { $in: ["cash", "Cash", "CASH"] },
+            paymentStatus: "Paid",
+            cashSettled: false,
+          },
         },
-      },
-      { $group: { _id: "$paymentCollectedBy", pendingAmount: { $sum: "$totalAmount" }, pendingCount: { $sum: 1 } } },
+        {
+          $project: {
+            paymentCollectedBy: 1,
+            totalAmount: 1,
+          },
+        },
+        { $group: { _id: "$paymentCollectedBy", pendingAmount: { $sum: "$totalAmount" }, pendingCount: { $sum: 1 } } },
+      ]),
+      Order.aggregate([
+        { $match: { assignedPhlebo: { $in: phleboIds } } },
+        {
+          $project: {
+            assignedPhlebo: 1,
+            phleboStatus: 1,
+            assignedLabName: 1,
+          },
+        },
+        {
+          $group: {
+            _id: "$assignedPhlebo",
+            completed: {
+              $sum: {
+                $cond: [{ $in: ["$phleboStatus", ["Sample Collected", "Handed Off"]] }, 1, 0],
+              },
+            },
+            pending: {
+              $sum: {
+                $cond: [
+                  { $not: [{ $in: ["$phleboStatus", ["Sample Collected", "Handed Off", "Rejected"]] }] },
+                  1,
+                  0,
+                ],
+              },
+            },
+            labs: { $addToSet: "$assignedLabName" },
+          },
+        },
+      ]),
     ]);
     const cashMap = {};
     cashAgg.forEach((c) => {
@@ -1179,30 +1200,6 @@ router.get("/admin/phlebos", verifyToken, requireRole("superadmin", "admin"), as
     // Har phlebo ke liye: kitni orders complete ho chuki hain, kitni abhi pending/
     // in-progress hain, aur kaun-kaun si lab(s) ke order unke paas assigned hain
     // (Team/Phlebos table mein "kis phlebo ko kis lab ka kaam h" dikhane ke liye).
-    const phleboIds = phlebos.map((p) => p._id);
-    const jobAgg = await Order.aggregate([
-      { $match: { assignedPhlebo: { $in: phleboIds } } },
-      {
-        $group: {
-          _id: "$assignedPhlebo",
-          completed: {
-            $sum: {
-              $cond: [{ $in: ["$phleboStatus", ["Sample Collected", "Handed Off"]] }, 1, 0],
-            },
-          },
-          pending: {
-            $sum: {
-              $cond: [
-                { $not: [{ $in: ["$phleboStatus", ["Sample Collected", "Handed Off", "Rejected"]] }] },
-                1,
-                0,
-              ],
-            },
-          },
-          labs: { $addToSet: "$assignedLabName" },
-        },
-      },
-    ]);
     const jobMap = {};
     jobAgg.forEach((j) => {
       jobMap[String(j._id)] = {
@@ -4197,17 +4194,49 @@ router.get("/admin/analytics", verifyToken, requireRole("superadmin", "admin"), 
     const orderFilter = { ...req.scopeFilter, ...(Object.keys(dateFilter).length ? { createdAt: dateFilter } : {}) };
     const phleboFilter = req.user.role === "admin" ? { city: req.user.city } : {};
 
-    const [allOrders, phlebos, clients, cashAgg] = await Promise.all([
-      Order.find(orderFilter).select(
-        "assignedPhlebo assignedPhleboName phleboStatus paymentStatus totalAmount createdAt clientSlug"
-      ),
-      Phlebotomist.find(phleboFilter).select("-passwordHash -otp"),
+    const [statsAgg, clientAgg, phlebos, clients, cashAgg] = await Promise.all([
+      Order.aggregate([
+        { $match: orderFilter },
+        {
+          $group: {
+            _id: null,
+            totalOrders: { $sum: 1 },
+            completedOrders: {
+              $sum: {
+                $cond: [{ $in: ["$phleboStatus", ["Sample Collected", "Handed Off"]] }, 1, 0],
+              },
+            },
+            rejectedOrders: {
+              $sum: { $cond: [{ $eq: ["$phleboStatus", "Rejected"] }, 1, 0] },
+            },
+            unassignedOrders: {
+              $sum: {
+                $cond: [
+                  {
+                    $or: [
+                      { $eq: [{ $ifNull: ["$assignedPhlebo", null] }, null] },
+                      { $in: ["$phleboStatus", ["Unassigned", null]] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ]),
+      Order.aggregate([
+        { $match: orderFilter },
+        { $group: { _id: { $ifNull: ["$clientSlug", "unknown"] }, count: { $sum: 1 } } },
+      ]),
+      Phlebotomist.find(phleboFilter).select("status"),
       Client.find().select("name slug status"),
       Order.aggregate([
         {
           $match: {
             ...req.scopeFilter,
-            paymentCollectedMethod: { $regex: /^cash$/i },
+            paymentCollectedMethod: { $in: ["cash", "Cash", "CASH"] },
             paymentStatus: "Paid",
             cashSettled: false,
           },
@@ -4215,22 +4244,23 @@ router.get("/admin/analytics", verifyToken, requireRole("superadmin", "admin"), 
         { $group: { _id: null, total: { $sum: "$totalAmount" }, count: { $sum: 1 } } },
       ]),
     ]);
+    const stats = statsAgg[0] || {
+      totalOrders: 0,
+      completedOrders: 0,
+      rejectedOrders: 0,
+      unassignedOrders: 0,
+    };
     const totalCashPending = cashAgg[0]?.total || 0;
     const totalCashPendingCount = cashAgg[0]?.count || 0;
 
-    const totalOrders = allOrders.length;
-    const completedOrders = allOrders.filter((o) =>
-      ["Sample Collected", "Handed Off"].includes(o.phleboStatus)
-    ).length;
-    const rejectedOrders = allOrders.filter((o) => o.phleboStatus === "Rejected").length;
-    const unassignedOrders = allOrders.filter(
-      (o) => !o.assignedPhlebo || ["Unassigned", null].includes(o.phleboStatus)
-    ).length;
+    const totalOrders = stats.totalOrders;
+    const completedOrders = stats.completedOrders;
+    const rejectedOrders = stats.rejectedOrders;
+    const unassignedOrders = stats.unassignedOrders;
 
     const byClient = {};
-    for (const o of allOrders) {
-      const k = o.clientSlug || "unknown";
-      byClient[k] = (byClient[k] || 0) + 1;
+    for (const row of clientAgg) {
+      byClient[row._id || "unknown"] = row.count;
     }
 
     res.json({
