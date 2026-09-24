@@ -1310,15 +1310,23 @@ export default function Orders() {
                                 ) : null}
                               </div>
                             </div>
-                            {hasOwnPhoto ? (
+                            {hasOwnPhoto || hasSharedTubesPhoto ? (
                               <div className="mt-2 flex gap-2 overflow-x-auto">
-                                {sampleUrls.map((src, pi) => (
-                                  <img
+                                {(hasOwnPhoto ? sampleUrls : collectionUrls).map((src, pi) => (
+                                  <a
                                     key={pi}
-                                    src={mediaUrl(src)}
-                                    alt={`Sample ${s.barcode} ${pi + 1}`}
-                                    className="rounded-lg max-h-48 max-w-[220px] object-contain bg-white border border-slate-100"
-                                  />
+                                    href={mediaUrl(src)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="shrink-0"
+                                    title="Open full photo"
+                                  >
+                                    <img
+                                      src={mediaUrl(src)}
+                                      alt={`Sample ${s.barcode} ${pi + 1}`}
+                                      className="rounded-lg h-28 w-28 object-cover bg-white border border-slate-200"
+                                    />
+                                  </a>
                                 ))}
                               </div>
                             ) : null}
@@ -1350,12 +1358,13 @@ export default function Orders() {
                       <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs">
                         <div className="flex gap-2 overflow-x-auto">
                           {urls.map((src, pi) => (
-                            <img
-                              key={pi}
-                              src={mediaUrl(src)}
-                              alt={`Tubes ${pi + 1}`}
-                              className="rounded-lg max-h-48 max-w-[220px] object-contain bg-white border border-slate-100"
-                            />
+                            <a key={pi} href={mediaUrl(src)} target="_blank" rel="noreferrer" className="shrink-0" title="Open full photo">
+                              <img
+                                src={mediaUrl(src)}
+                                alt={`Tubes ${pi + 1}`}
+                                className="rounded-lg h-28 w-28 object-cover bg-white border border-slate-200"
+                              />
+                            </a>
                           ))}
                         </div>
                       </div>
@@ -1391,12 +1400,13 @@ export default function Orders() {
                     return (
                       <div className="flex gap-2 overflow-x-auto">
                         {bagUrls.map((src, bi) => (
-                          <img
-                            key={bi}
-                            src={mediaUrl(src)}
-                            alt={`Cold-chain bag ${bi + 1}`}
-                            className="rounded-lg max-h-40 max-w-[200px] object-cover"
-                          />
+                          <a key={bi} href={mediaUrl(src)} target="_blank" rel="noreferrer" className="shrink-0" title="Open full photo">
+                            <img
+                              src={mediaUrl(src)}
+                              alt={`Cold-chain bag ${bi + 1}`}
+                              className="rounded-lg h-28 w-28 object-cover bg-white border border-slate-200"
+                            />
+                          </a>
                         ))}
                       </div>
                     );
