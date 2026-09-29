@@ -144,7 +144,7 @@ async function autoAssignJob(jobId) {
     chosen,
     "New pickup assigned",
     `${job.patientName} — ${job.slotDate} ${job.slotTime}`,
-    { jobId: String(job._id) }
+    { type: "job_assigned", jobId: String(job._id) }
   ).catch(() => {});
   return chosen;
 }
