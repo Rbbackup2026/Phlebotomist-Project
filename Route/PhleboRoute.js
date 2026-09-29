@@ -1435,7 +1435,7 @@ router.put("/admin/orders/:id/assign-phlebo", verifyToken, requireRole("admin"),
       phlebo,
       "New pickup assigned",
       `${order.patientName} — ${order.slotDate} ${order.slotTime}`,
-      { jobId: String(order._id) }
+      { type: "job_assigned", jobId: String(order._id) }
     ).catch(() => {});
 
     res.json({ success: true, message: "Phlebotomist assigned", order });
@@ -1551,7 +1551,7 @@ router.put("/admin/orders/:id/reschedule", verifyToken, requireRole("admin"), as
         phlebo,
         "Pickup rescheduled to you",
         `${order.patientName} — ${order.slotDate} ${order.slotTime}`,
-        { jobId: String(order._id) }
+        { type: "job_assigned", jobId: String(order._id) }
       ).catch(() => {});
       return res.json({ success: true, message: "Order rescheduled aur phlebo assign ho gaya", order });
     }

@@ -36,6 +36,7 @@ async function sendPushToPhlebo(phlebo, title, body, data = {}) {
         data,
         sound: "default",
         priority: "high",
+        channelId: "default",
       }),
       signal: controller.signal,
     });
