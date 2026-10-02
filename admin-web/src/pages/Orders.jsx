@@ -1519,6 +1519,7 @@ export default function Orders() {
             <AddressField
               label="Address"
               required
+              city={newOrder.city}
               value={newOrder.address}
               onChange={({ address, lat, lng }) =>
                 setNewOrder({ ...newOrder, address, lat, lng })

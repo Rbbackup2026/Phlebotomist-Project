@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { adminApi } from "../api.js";
 
-export default function AddressField({ label, value, required, onChange }) {
+export default function AddressField({ label, value, city, required, onChange }) {
   const [q, setQ] = useState(value || "");
   const [hits, setHits] = useState([]);
   const [open, setOpen] = useState(false);
@@ -18,6 +18,11 @@ export default function AddressField({ label, value, required, onChange }) {
       return;
     }
     const text = String(q || "").trim();
+    const cityName = String(city || "").trim();
+    const searchText =
+      cityName && !text.toLowerCase().includes(cityName.toLowerCase())
+        ? `${text}, ${cityName}`
+        : text;
     if (text.length < 3) {
       setHits([]);
       return;
@@ -25,7 +30,7 @@ export default function AddressField({ label, value, required, onChange }) {
     const t = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await adminApi.placesSuggest(text);
+        const res = await adminApi.placesSuggest(searchText);
         setHits(res.suggestions || []);
         setOpen(true);
       } catch {
@@ -35,7 +40,7 @@ export default function AddressField({ label, value, required, onChange }) {
       }
     }, 320);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, city]);
 
   async function pick(hit) {
     skipRef.current = true;

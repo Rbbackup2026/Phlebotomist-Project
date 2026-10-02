@@ -27,9 +27,51 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-async function googleSuggestNew(query) {
+const cityCenterCache = new Map();
+
+function cityHint(query) {
+  const parts = String(query || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return parts.length > 1 ? parts[parts.length - 1] : "";
+}
+
+async function nearbyCenter(query) {
+  const hint = cityHint(query);
+  if (hint.length < 3) return null;
+  const cacheKey = hint.toLowerCase();
+  if (cityCenterCache.has(cacheKey)) return cityCenterCache.get(cacheKey);
+  let center = null;
+  const key = mapsKey();
+  if (key) {
+    const url =
+      "https://maps.googleapis.com/maps/api/geocode/json" +
+      `?address=${encodeURIComponent(`${hint}, India`)}&region=in&key=${encodeURIComponent(key)}`;
+    const { data } = await fetchJson(url);
+    const loc = data.results?.[0]?.geometry?.location;
+    const lat = num(loc?.lat);
+    const lng = num(loc?.lng);
+    if (lat != null && lng != null) center = { lat, lng };
+  }
+  cityCenterCache.set(cacheKey, center);
+  return center;
+}
+
+function circleBias(center) {
+  if (!center) return null;
+  return {
+    circle: {
+      center: { latitude: center.lat, longitude: center.lng },
+      radius: 40000,
+    },
+  };
+}
+
+async function googleSuggestNew(query, center) {
   const key = mapsKey();
   if (!key) return null;
+  const bias = circleBias(center);
   const { ok, data } = await fetchJson("https://places.googleapis.com/v1/places:autocomplete", {
     method: "POST",
     headers: {
@@ -42,6 +84,7 @@ async function googleSuggestNew(query) {
       input: query,
       includedRegionCodes: ["in"],
       languageCode: "en",
+      ...(bias ? { locationBias: bias } : {}),
     }),
   });
   if (!ok || !Array.isArray(data.suggestions)) return null;
@@ -59,12 +102,45 @@ async function googleSuggestNew(query) {
     .filter((x) => x.id && x.label);
 }
 
-async function googleSuggestLegacy(query) {
+async function googleTextSearch(query, center) {
+  const key = mapsKey();
+  if (!key) return [];
+  const bias = circleBias(center);
+  const { ok, data } = await fetchJson("https://places.googleapis.com/v1/places:searchText", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": key,
+      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location",
+    },
+    body: JSON.stringify({
+      textQuery: query,
+      includedRegionCodes: ["in"],
+      languageCode: "en",
+      pageSize: 8,
+      ...(bias ? { locationBias: bias } : {}),
+    }),
+  });
+  if (!ok || !Array.isArray(data.places)) return [];
+  return data.places
+    .map((p) => ({
+      id: String(p.id || "").replace(/^places\//, ""),
+      label: p.formattedAddress || p.displayName?.text || "",
+      secondary: p.formattedAddress && p.displayName?.text ? p.displayName.text : "",
+      lat: num(p.location?.latitude),
+      lng: num(p.location?.longitude),
+      source: "google",
+    }))
+    .filter((x) => x.id && x.label);
+}
+
+async function googleSuggestLegacy(query, center) {
   const key = mapsKey();
   if (!key) return null;
+  const near = center ? `&location=${center.lat},${center.lng}&radius=40000` : "";
   const url =
     "https://maps.googleapis.com/maps/api/place/autocomplete/json" +
-    `?input=${encodeURIComponent(query)}&components=country:in&language=en&key=${encodeURIComponent(key)}`;
+    `?input=${encodeURIComponent(query)}&components=country:in&language=en${near}&key=${encodeURIComponent(key)}`;
   const { data } = await fetchJson(url);
   if (data.status !== "OK" && data.status !== "ZERO_RESULTS") return null;
   const preds = Array.isArray(data.predictions) ? data.predictions : [];
@@ -78,8 +154,44 @@ async function googleSuggestLegacy(query) {
   }));
 }
 
+async function googleGeocodeSuggestions(query) {
+  const key = mapsKey();
+  if (!key) return [];
+  const url =
+    "https://maps.googleapis.com/maps/api/geocode/json" +
+    `?address=${encodeURIComponent(query)}&region=in&language=en&key=${encodeURIComponent(key)}`;
+  const { data } = await fetchJson(url);
+  const results = Array.isArray(data.results) ? data.results : [];
+  return results.slice(0, 5).map((r) => {
+    const lat = num(r.geometry?.location?.lat);
+    const lng = num(r.geometry?.location?.lng);
+    return {
+      id: r.place_id || "",
+      label: r.formatted_address || "",
+      secondary: "",
+      lat,
+      lng,
+      source: "google",
+    };
+  }).filter((x) => x.id && x.label);
+}
+
+function mergeSuggestions(lists, limit = 8) {
+  const out = [];
+  const seen = new Set();
+  for (const item of lists.flat()) {
+    if (!item?.label) continue;
+    const key = item.label.toLowerCase().replace(/\s+/g, " ").trim();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 async function nominatimSuggest(query) {
-  const url = `${NOMINATIM_URL}?format=json&limit=6&countrycodes=in&q=${encodeURIComponent(query)}`;
+  const url = `${NOMINATIM_URL}?format=json&limit=8&countrycodes=in&q=${encodeURIComponent(query)}`;
   const { ok, data } = await fetchJson(url, {
     headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
   });
@@ -106,8 +218,15 @@ async function suggestPlaces(query) {
   const q = String(query || "").trim();
   if (q.length < 3) return [];
   try {
-    const fresh = (await googleSuggestNew(q)) || (await googleSuggestLegacy(q));
-    if (Array.isArray(fresh) && fresh.length) return fresh.slice(0, 6);
+    const center = await nearbyCenter(q);
+    const [auto, geo, nearby] = await Promise.all([
+      googleSuggestNew(q, center).then((rows) => rows || googleSuggestLegacy(q, center)).catch(() => []),
+      googleGeocodeSuggestions(q).catch(() => []),
+      googleTextSearch(q, center).catch(() => []),
+    ]);
+    const door = /\d/.test(q);
+    const merged = mergeSuggestions(door ? [geo, nearby, auto] : [nearby, auto, geo]);
+    if (merged.length) return merged;
   } catch (err) {
     console.warn("[places] google suggest failed:", err.message);
   }
