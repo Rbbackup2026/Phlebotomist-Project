@@ -124,6 +124,8 @@ export const adminApi = {
       body: { reason },
     }),
   clients: () => request("/admin/clients"),
+  createClient: (payload) => request("/admin/clients", { method: "POST", body: payload }),
+  updateClient: (id, payload) => request(`/admin/clients/${id}`, { method: "PUT", body: payload }),
   phlebos: () => request("/admin/phlebos"),
   mapsConfig: () => request("/admin/maps-config"),
   placesSuggest: (q) => request(`/admin/places/suggest?q=${encodeURIComponent(q || "")}`),

@@ -18,6 +18,7 @@ async function notifyPartner(order) {
       // Legacy aliases (purane Wello listeners)
       jobId: orderId,
       externalOrderId: order.externalOrderId,
+      pickupId: order.pickupId || null,
       clientSlug: client.slug,
       phleboStatus: order.phleboStatus,
       status: order.status,

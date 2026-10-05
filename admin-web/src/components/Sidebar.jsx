@@ -14,7 +14,7 @@ const baseItems = [
   { to: "/attendance", label: "Attendance", icon: "🕘" },
   { to: "/collections", label: "Collections", icon: "📅" },
   { to: "/lab-tat", label: "Lab TAT", icon: "⏱️" },
-  { to: "/clients", label: "Clients", icon: "🌐" },
+  { to: "/clients", label: "CRM / Clients", icon: "🌐" },
 ];
 
 // Superadmin manages city Admins; Admin manages their city's Labs. Lab role

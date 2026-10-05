@@ -27,7 +27,7 @@ Boot pe seed hota hai:
 ## Partner API (dusri websites)
 
 ```http
-POST /v1/api/partner/jobs
+POST /v1/api/partner/orders
 Authorization: Bearer <apiKey>
 
 {
@@ -40,6 +40,8 @@ Authorization: Bearer <apiKey>
   "tests / items": [],
   "totalAmount": 799
 }
+
+Legacy alias (same handler): POST /v1/api/partner/jobs
 ```
 
 Naya client:
@@ -50,6 +52,29 @@ X-Seed-Key: phlebo-seed-dev
 
 { "name": "Clinic A", "slug": "clinic-a", "webhookUrl": "https://…" }
 ```
+
+## CRM connect
+
+Phlebo `.env` (alag CRM, Wello nahi):
+
+```
+CRM_CLIENT_SLUG=crm
+CRM_CLIENT_NAME=Your CRM
+CRM_API_KEY=pk_live_...
+CRM_WEBHOOK_SECRET=whsec_...
+CRM_WEBHOOK_URL=https://crm.example.com/webhooks/phlebo
+PUBLIC_BASE_URL=https://your-phlebo-api
+```
+
+Restart backend → Admin → Clients se key copy. CRM team ko do:
+
+- `docs/Phlebo_CRM_Partner_API_Integration.html`
+- Base URL + API key + webhook secret
+
+CRM: `POST /v1/api/partner/orders` (create), `GET …/orders/:externalOrderId` (status),
+`PUT …/cancel`, `PUT …/reschedule`. Status webhook Phlebo → CRM.
+
+Ya superadmin Admin → Clients se naya client bana sakta hai (env ke bina).
 
 ## Wello connect
 

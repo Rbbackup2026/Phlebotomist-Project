@@ -202,16 +202,24 @@ function SuperadminOverview() {
             <div className="text-violet-500 text-xs font-medium uppercase tracking-wide">Superadmin</div>
             <h2 className="text-slate-900 text-xl font-semibold mt-1">Platform-wide overview</h2>
             <p className="text-slate-500 text-sm mt-1">
-              Each city&apos;s Admin manages its data — view-only here
+              Each city&apos;s Admin manages its data — view-only here. CRM API keys yahan se banti hain.
             </p>
           </div>
-          <button
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <button
+              onClick={() => navigate("/clients")}
+              className="rounded-lg bg-white text-violet-700 border border-violet-200 text-sm font-medium px-4 py-2.5 hover:bg-violet-50"
+            >
+              CRM / Clients — API key
+            </button>
+            <button
             onClick={() => navigate("/team")}
             className="rounded-lg bg-gradient-to-b from-violet-500 to-violet-600 hover:from-violet-400 hover:to-violet-500 text-white text-sm font-medium px-4 py-2.5 transition-all shrink-0"
             style={{ boxShadow: "0 2px 4px rgba(124,58,237,0.2), 0 8px 16px -6px rgba(124,58,237,0.4)" }}
           >
             + Create city admin
           </button>
+          </div>
         </div>
 
         {error ? <div className="rounded-lg bg-rose-50 text-rose-700 text-sm px-4 py-3">{error}</div> : null}

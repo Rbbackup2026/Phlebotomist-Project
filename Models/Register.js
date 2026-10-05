@@ -6,7 +6,7 @@ const loginSchema = new mongoose.Schema({
   password: { type: String, required: true },
   confirmPassword: { type: String },
   name: { type: String },
-  phone: { type: String },
+  phone: { type: String },  
 });
 
 module.exports = mongoose.model("Registeruser", loginSchema);

@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Phlebo — CRM Partner API Integration Guide</title>
+  <style>
+    :root {
+      --ink: #14213d;
+      --muted: #4a5568;
+      --line: #d8dee9;
+      --bg: #f7f8fb;
+      --card: #ffffff;
+      --accent: #0b6e4f;
+      --accent-soft: #e6f4ef;
+      --warn: #7a4d00;
+      --warn-bg: #fff6e5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Calibri, Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.55;
+      font-size: 15px;
+    }
+    .page {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 32px 28px 64px;
+    }
+    .cover {
+      background: linear-gradient(135deg, #0b3d2e 0%, #0b6e4f 55%, #1a9b72 100%);
+      color: #fff;
+      border-radius: 14px;
+      padding: 36px 32px;
+      margin-bottom: 28px;
+    }
+    .cover h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .cover p { margin: 0; opacity: 0.92; }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      margin-top: 18px;
+      font-size: 13px;
+      opacity: 0.95;
+    }
+    .meta span {
+      background: rgba(255,255,255,0.14);
+      padding: 6px 10px;
+      border-radius: 999px;
+    }
+    h2 {
+      margin: 32px 0 12px;
+      font-size: 20px;
+      border-bottom: 2px solid var(--line);
+      padding-bottom: 8px;
+    }
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 16px;
+      color: var(--accent);
+    }
+    p, li { color: var(--ink); }
+    .muted { color: var(--muted); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px 18px;
+      margin: 14px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    th, td {
+      text-align: left;
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th {
+      background: #eef2f7;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    code, .mono {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13px;
+    }
+    pre {
+      background: #111827;
+      color: #e5e7eb;
+      padding: 14px 16px;
+      border-radius: 10px;
+      overflow-x: auto;
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+    .fill {
+      background: #fff8db;
+      border: 1px dashed #e0b000;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    .badge {
+      display: inline-block;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+      margin-right: 6px;
+    }
+    .badge.warn {
+      background: var(--warn-bg);
+      color: var(--warn);
+    }
+    .flow {
+      display: grid;
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .flow-step {
+      background: var(--card);
+      border-left: 4px solid var(--accent);
+      border: 1px solid var(--line);
+      border-left-width: 4px;
+      border-left-color: var(--accent);
+      padding: 10px 14px;
+      border-radius: 8px;
+    }
+    .checklist label {
+      display: block;
+      padding: 6px 0;
+    }
+    .footer {
+      margin-top: 40px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+      font-size: 13px;
+      color: var(--muted);
+    }
+    @media print {
+      body { background: #fff; }
+      .page { padding: 0; max-width: none; }
+      .cover { break-after: avoid; }
+      pre { white-space: pre-wrap; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="cover">
+      <h1>Phlebo CRM Partner API<br />Integration Guide</h1>
+      <p>
+        How your CRM sends home-collection orders into Phlebo so they appear in
+        Phlebo Admin and can be assigned to a phlebotomist.
+      </p>
+      <div class="meta">
+        <span>Document version: 1.2</span>
+        <span>Audience: CRM engineering team</span>
+        <span>Language: English</span>
+        <span>Owner: Phlebo / Razo Byte</span>
+      </div>
+    </div>
+
+    <h2>1. Credentials Phlebo will give you</h2>
+    <p class="muted">
+      Fill the yellow fields before sending this document to the CRM team.
+      Keep API keys and webhook secrets confidential.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Value</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Environment</strong></td>
+          <td><span class="fill">Production</span></td>
+          <td>Production / Staging</td>
+        </tr>
+        <tr>
+          <td><strong>Base URL</strong></td>
+          <td class="mono"><span class="fill">https://phlebohub.razobyte.com</span></td>
+          <td>No trailing slash</td>
+        </tr>
+        <tr>
+          <td><strong>API prefix</strong></td>
+          <td class="mono">/v1/api</td>
+          <td>All Partner APIs start with this path</td>
+        </tr>
+        <tr>
+          <td><strong>Full API root</strong></td>
+          <td class="mono"><span class="fill">https://phlebohub.razobyte.com/v1/api</span></td>
+          <td>Base URL + /v1/api</td>
+        </tr>
+        <tr>
+          <td><strong>Client name</strong></td>
+          <td><span class="fill">________________</span></td>
+          <td>Your CRM / brand name in Phlebo</td>
+        </tr>
+        <tr>
+          <td><strong>Client slug</strong></td>
+          <td class="mono"><span class="fill">________________</span></td>
+          <td>Lowercase id, e.g. <code>acme-crm</code></td>
+        </tr>
+        <tr>
+          <td><strong>API Key</strong></td>
+          <td class="mono"><span class="fill">pk_live________________</span></td>
+          <td>Required on every request</td>
+        </tr>
+        <tr>
+          <td><strong>Webhook Secret</strong></td>
+          <td class="mono"><span class="fill">________________</span></td>
+          <td>For verifying status webhooks</td>
+        </tr>
+        <tr>
+          <td><strong>Your webhook URL</strong></td>
+          <td class="mono"><span class="fill">https://________________</span></td>
+          <td>CRM endpoint Phlebo will call (optional)</td>
+        </tr>
+        <tr>
+          <td><strong>Admin panel (Phlebo Ops)</strong></td>
+          <td class="mono">https://phlebohub.razobyte.com/admin/orders</td>
+          <td>Where Ops sees &amp; assigns orders (not for CRM calls)</td>
+        </tr>
+        <tr>
+          <td><strong>Support contact</strong></td>
+          <td><span class="fill">________________</span></td>
+          <td>Email / phone for integration help</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>2. End-to-end flow</h2>
+    <div class="flow">
+      <div class="flow-step"><strong>1.</strong> Customer books home collection in your CRM.</div>
+      <div class="flow-step"><strong>2.</strong> CRM calls Phlebo <code>POST /partner/orders</code> with patient, address, slot, tests.</div>
+      <div class="flow-step"><strong>3.</strong> Order is saved in Phlebo and appears in <strong>Admin → Orders</strong>.</div>
+      <div class="flow-step"><strong>4.</strong> Phlebo Ops assigns a phlebotomist (or auto-assign may run).</div>
+      <div class="flow-step"><strong>5.</strong> Phlebotomist completes the visit in the Phlebo mobile app.</div>
+      <div class="flow-step"><strong>6.</strong> Phlebo notifies CRM via webhook on status changes (if configured).</div>
+    </div>
+
+    <h2>3. Authentication — how CRM uses the Phlebo API</h2>
+    <div class="card">
+      <p>
+        Phlebo Partner APIs do <strong>not</strong> use Admin login or Phlebo
+        mobile OTP/JWT. CRM authenticates with the <strong>Partner API Key</strong>
+        that Phlebo gives you (see credentials table above).
+      </p>
+      <p><strong>How to use it</strong></p>
+      <ol>
+        <li>Phlebo creates a Client for your CRM and shares the <code>API Key</code> (starts with <code>pk_live_</code>).</li>
+        <li>Your CRM server stores that key securely (environment variable / secrets vault — never in a mobile app or public frontend).</li>
+        <li>On every Partner API call, your server sends the key in the request header.</li>
+        <li>Phlebo checks the key, identifies your CRM client, and creates/reads only your orders.</li>
+      </ol>
+      <p><strong>Header (required on every request) — use one of these:</strong></p>
+      <pre>Authorization: Bearer pk_live_xxxxxxxxxxxxxxxx
+
+OR
+
+x-api-key: pk_live_xxxxxxxxxxxxxxxx</pre>
+      <p><strong>Example (Create order with auth)</strong></p>
+      <pre>POST https://phlebohub.razobyte.com/v1/api/partner/orders
+Content-Type: application/json
+Authorization: Bearer pk_live_xxxxxxxxxxxxxxxx
+
+{ "externalOrderId": "CRM-ORDER-12345", "patientName": "...", ... }</pre>
+      <p class="muted" style="margin-bottom:0">
+        If the key is missing or wrong, Phlebo returns <strong>HTTP 401</strong>.
+        Do not use Admin passwords or Phlebo app login for these APIs.
+      </p>
+    </div>
+
+    <h2>4. APIs for CRM</h2>
+
+    <h3>
+      <span class="badge">REQUIRED</span>
+      API 1 — Create order
+    </h3>
+    <table>
+      <tr><th style="width:160px">Method</th><td>POST</td></tr>
+      <tr><th>URL</th><td class="mono">https://phlebohub.razobyte.com/v1/api/partner/orders</td></tr>
+      <tr><th>Auth</th><td>Partner API Key in header (see Section 3)</td></tr>
+      <tr><th>When</th><td>Right after a home-collection order is confirmed in CRM</td></tr>
+    </table>
+
+    <p><strong>Headers</strong></p>
+    <pre>Content-Type: application/json
+Authorization: Bearer pk_live_xxxxxxxxxxxxxxxx</pre>
+
+    <p><strong>Request body example</strong></p>
+    <pre>{
+  "externalOrderId": "CRM-ORDER-12345",
+  "patientName": "Rahul Sharma",
+  "mobileNumber": "9876543210",
+  "gender": "Male",
+  "address": "House 12, Sector 45, Gurugram",
+  "state": "Haryana",
+  "city": "Gurugram",
+  "area": "Sector 45",
+  "pincode": "122001",
+  "lat": 28.4595,
+  "lng": 77.0266,
+  "slotDate": "2026-09-10",
+  "slotTime": "09:00-10:00",
+  "items": [
+    {
+      "productId": "TEST-CBC",
+      "name": "CBC",
+      "category": "Pathology",
+      "price": 399,
+      "quantity": 1,
+      "sku": "CBC"
+    }
+  ],
+  "amount": 399,
+  "totalAmount": 399,
+  "paymentMethod": "COD",
+  "paymentStatus": "Unpaid",
+  "specialInstructions": "Fasting required"
+}</pre>
+
+    <p><strong>Required fields</strong></p>
+    <ul>
+      <li><code>externalOrderId</code> — your CRM unique order id (also accepts <code>orderId</code>)</li>
+      <li><code>patientName</code></li>
+      <li><code>address</code></li>
+      <li><code>slotDate</code> — <code>YYYY-MM-DD</code></li>
+      <li><code>slotTime</code> — e.g. <code>09:00-10:00</code></li>
+    </ul>
+
+    <p><strong>Strongly recommended</strong></p>
+    <ul>
+      <li><code>mobileNumber</code>, <code>city</code>, <code>pincode</code>, <code>age</code> or <code>dob</code> (<code>YYYY-MM-DD</code>)</li>
+      <li><code>lat</code>, <code>lng</code> — improves auto-assign / routing</li>
+      <li><code>items</code>, <code>totalAmount</code> / <code>amount</code></li>
+      <li><code>paymentMethod</code>, <code>paymentStatus</code></li>
+    </ul>
+
+    <p><strong>Success (new order) — HTTP 201</strong></p>
+    <pre>{
+  "success": true,
+  "message": "Order created in Phlebo",
+  "orderId": "&lt;phlebo_order_id&gt;",
+  "order": { "...full order..." }
+}</pre>
+
+    <p><strong>Duplicate same externalOrderId — HTTP 200</strong></p>
+    <pre>{
+  "success": true,
+  "message": "Order already exists",
+  "orderId": "&lt;phlebo_order_id&gt;",
+  "order": { "...existing order..." },
+  "duplicate": true
+}</pre>
+
+    <div class="card">
+      <strong>After this call:</strong> the order appears in Phlebo Admin → Orders
+      (usually <code>status: Booked</code>, <code>phleboStatus: Unassigned</code>
+      unless auto-assigned). Ops can then assign a phlebotomist.
+    </div>
+
+    <h3>
+      <span class="badge">OPTIONAL</span>
+      API 2 — Get order status
+    </h3>
+    <table>
+      <tr><th style="width:160px">Method</th><td>GET</td></tr>
+      <tr><th>URL</th><td class="mono">https://phlebohub.razobyte.com/v1/api/partner/orders/{externalOrderId}</td></tr>
+      <tr><th>Auth</th><td>Partner API Key in header (see Section 3)</td></tr>
+    </table>
+    <pre>Authorization: Bearer pk_live_xxxxxxxxxxxxxxxx</pre>
+    <p><strong>Success — HTTP 200</strong></p>
+    <pre>{
+  "success": true,
+  "order": {
+    "externalOrderId": "CRM-ORDER-12345",
+    "pickupId": "WEL-20260910-0001",
+    "patientName": "Rahul Sharma",
+    "status": "Booked",
+    "phleboStatus": "Assigned",
+    "assignedPhleboName": "Yogesh",
+    "paymentStatus": "Unpaid"
+  }
+}</pre>
+    <p><strong>Common <code>phleboStatus</code> values</strong></p>
+    <p class="muted">
+      Unassigned · Assigned · Accepted · Rejected · En Route · Arrived ·
+      OTP Verified · Consent Done · Sample Collected · Handed Off
+    </p>
+
+    <h3>
+      <span class="badge">OPTIONAL</span>
+      API 3 — Update order (before sample collection)
+    </h3>
+    <table>
+      <tr><th style="width:160px">Method</th><td>PUT</td></tr>
+      <tr><th>URL</th><td class="mono">https://phlebohub.razobyte.com/v1/api/partner/orders/{externalOrderId}</td></tr>
+      <tr><th>Auth</th><td>Partner API Key in header (see Section 3)</td></tr>
+    </table>
+    <pre>{
+  "patientName": "Rahul Sharma",
+  "mobileNumber": "9876543210",
+  "address": "Updated address",
+  "city": "Gurugram",
+  "pincode": "122001",
+  "items": [{ "name": "CBC", "sku": "CBC", "price": 399, "quantity": 1 }]
+}</pre>
+
+    <h3>
+      <span class="badge">OPTIONAL</span>
+      API 4 — Cancel order
+    </h3>
+    <table>
+      <tr><th style="width:160px">Method</th><td>PUT</td></tr>
+      <tr><th>URL</th><td class="mono">https://phlebohub.razobyte.com/v1/api/partner/orders/{externalOrderId}/cancel</td></tr>
+      <tr><th>Auth</th><td>Partner API Key in header (see Section 3)</td></tr>
+    </table>
+    <pre>{ "reason": "Patient cancelled" }</pre>
+    <p class="muted">Not allowed after Sample Collected / Handed Off.</p>
+
+    <h3>
+      <span class="badge">OPTIONAL</span>
+      API 5 — Reschedule slot
+    </h3>
+    <table>
+      <tr><th style="width:160px">Method</th><td>PUT</td></tr>
+      <tr><th>URL</th><td class="mono">https://phlebohub.razobyte.com/v1/api/partner/orders/{externalOrderId}/reschedule</td></tr>
+      <tr><th>Auth</th><td>Partner API Key in header (see Section 3)</td></tr>
+    </table>
+    <pre>{ "slotDate": "2026-09-23", "slotTime": "11:00-12:00" }</pre>
+    <p class="muted">Clears current phlebo assignment so Ops / auto-assign can pick for the new slot.</p>
+
+    <h3>
+      <span class="badge warn">CRM RECEIVES</span>
+      API 6 — Status webhook (Phlebo → CRM)
+    </h3>
+    <p>
+      This is not an API you call. Phlebo POSTs to your <code>webhookUrl</code>
+      when order status changes (assign, collect, handover, payment, etc.).
+    </p>
+    <p><strong>Example request from Phlebo</strong></p>
+    <pre>POST https://your-crm.example.com/webhooks/phlebo
+Content-Type: application/json
+X-Phlebo-Signature: &lt;hmac_sha256_hex&gt;
+X-Phlebo-Client: &lt;client_slug&gt;
+
+{
+  "event": "order.status_changed",
+  "orderId": "&lt;phlebo_order_id&gt;",
+  "jobId": "&lt;same_as_orderId&gt;",
+  "externalOrderId": "CRM-ORDER-12345",
+  "clientSlug": "your-crm-slug",
+  "phleboStatus": "Sample Collected",
+  "status": "Processing",
+  "assignedPhleboName": "Yogesh",
+  "assignedPhleboId": "...",
+  "paymentStatus": "Paid",
+  "paymentCollectedMethod": "UPI",
+  "collectedAt": "...",
+  "arrivedAt": "...",
+  "items": [],
+  "amount": 399,
+  "totalAmount": 399,
+  "samples": [{ "barcode": "...", "sampleType": "Blood" }],
+  "updatedAt": "..."
+}</pre>
+    <p><strong>Signature verification (recommended)</strong></p>
+    <pre>signBase = externalOrderId + "|" + jobId + "|" + phleboStatus + "|" + status
+expected = HMAC_SHA256(webhookSecret, signBase) as hex
+Compare expected with header X-Phlebo-Signature</pre>
+
+    <h2>5. What CRM must NOT use</h2>
+    <table>
+      <thead>
+        <tr><th>Do not use</th><th>Reason</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">/admin/*</td><td>Ops dashboard only</td></tr>
+        <tr><td class="mono">/phlebo/*</td><td>Mobile app only</td></tr>
+        <tr><td class="mono">/partner/register-client</td><td>Internal Phlebo setup only</td></tr>
+        <tr><td>Direct database access</td><td>Not allowed</td></tr>
+      </tbody>
+    </table>
+
+    <h2>6. Common HTTP errors</h2>
+    <table>
+      <thead>
+        <tr><th>Code</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>401</td><td>Missing or invalid API key</td></tr>
+        <tr><td>400</td><td>Missing required fields</td></tr>
+        <tr><td>404</td><td>Order not found (GET)</td></tr>
+        <tr><td>500</td><td>Server error — retry with backoff (create is idempotent by externalOrderId)</td></tr>
+      </tbody>
+    </table>
+
+    <h2>7. CRM integration checklist</h2>
+    <div class="card checklist">
+      <label>☐ Store Base URL + API Key securely</label>
+      <label>☐ On home-collection confirm → POST /v1/api/partner/orders</label>
+      <label>☐ Use unique externalOrderId per CRM order</label>
+      <label>☐ Optionally save returned orderId / pickupId</label>
+      <label>☐ Optionally poll GET /v1/api/partner/orders/{externalOrderId}</label>
+      <label>☐ Optionally cancel → PUT /v1/api/partner/orders/{id}/cancel</label>
+      <label>☐ Optionally reschedule → PUT /v1/api/partner/orders/{id}/reschedule</label>
+      <label>☐ Optionally expose webhook URL + verify signature</label>
+      <label>☐ Confirm test order appears in Phlebo Admin → Orders</label>
+      <label>☐ Confirm Ops can Assign phlebotomist from Admin</label>
+    </div>
+
+    <h2>8. Quick reference</h2>
+    <table>
+      <thead>
+        <tr><th>Action</th><th>Endpoint</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Create order</td>
+          <td class="mono">POST https://phlebohub.razobyte.com/v1/api/partner/orders</td>
+        </tr>
+        <tr>
+          <td>Get status</td>
+          <td class="mono">GET https://phlebohub.razobyte.com/v1/api/partner/orders/{externalOrderId}</td>
+        </tr>
+        <tr>
+          <td>Update</td>
+          <td class="mono">PUT …/partner/orders/{externalOrderId}</td>
+        </tr>
+        <tr>
+          <td>Cancel</td>
+          <td class="mono">PUT …/partner/orders/{externalOrderId}/cancel</td>
+        </tr>
+        <tr>
+          <td>Reschedule</td>
+          <td class="mono">PUT …/partner/orders/{externalOrderId}/reschedule</td>
+        </tr>
+        <tr>
+          <td>Receive updates</td>
+          <td>Your webhook URL (Phlebo calls you)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="footer">
+      <p>
+        <strong>Phlebo Partner Integration</strong> · Document 1.2 ·
+        Open this file in a browser → Print → Save as PDF to share with CRM.
+      </p>
+      <p>
+        Before sending: fill all yellow placeholder fields (API Key, Client slug,
+        Webhook secret, Support contact).
+      </p>
+    </div>
+  </div>
+</body>
+</html>

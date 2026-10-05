@@ -120,6 +120,8 @@ async function seedPlatform() {
     console.log(`  LIS panels: ${lisCount}`);
   }
 
+  const crmClient = await seedCrmClient(slug);
+
   const superadmin = await OpsUser.findOne({ role: "superadmin" }).select("email");
 
   console.log("────────────────────────────────────────");
@@ -133,9 +135,71 @@ async function seedPlatform() {
     console.log("  Ops    : (none) — POST /v1/api/register-superadmin");
   }
   console.log("  Put same API key in Wello .env → PHLEBO_API_KEY");
+  if (crmClient) {
+    console.log(`  CRM    : ${crmClient.name} (${crmClient.slug})`);
+    console.log(`  CRM key: ${crmClient.apiKey}`);
+    console.log(`  CRM WH : ${crmClient.webhookUrl || "(set CRM_WEBHOOK_URL)"}`);
+  }
   console.log("────────────────────────────────────────");
 
-  return { client, ops: superadmin || null };
+  return { client, crmClient, ops: superadmin || null };
+}
+
+/**
+ * Optional second partner (CRM). Seed only when CRM_CLIENT_SLUG is set and
+ * it is not the same as the default Wello client.
+ */
+async function seedCrmClient(welloSlug) {
+  const slug = String(process.env.CRM_CLIENT_SLUG || "").toLowerCase().trim();
+  if (!slug || slug === welloSlug) return null;
+
+  const name = String(process.env.CRM_CLIENT_NAME || "CRM").trim() || "CRM";
+  const webhookUrl = String(process.env.CRM_WEBHOOK_URL || "").trim();
+  const fixedApiKey = String(process.env.CRM_API_KEY || "").trim();
+  const fixedWebhookSecret = String(process.env.CRM_WEBHOOK_SECRET || "").trim();
+  const catalogApiUrl = String(process.env.CRM_CATALOG_API_URL || "").replace(/\/$/, "");
+
+  let client = await Client.findOne({ slug });
+  if (!client) {
+    client = await Client.create({
+      name,
+      slug,
+      webhookUrl,
+      catalogApiUrl,
+      notes: "CRM partner (seeded from CRM_* env)",
+      ...(fixedApiKey ? { apiKey: fixedApiKey } : {}),
+      ...(fixedWebhookSecret ? { webhookSecret: fixedWebhookSecret } : {}),
+    });
+    console.log(`[seed] CRM client created: ${client.slug}`);
+    return client;
+  }
+
+  let dirty = false;
+  if (name && client.name !== name) {
+    client.name = name;
+    dirty = true;
+  }
+  if (client.webhookUrl !== webhookUrl) {
+    client.webhookUrl = webhookUrl;
+    dirty = true;
+  }
+  if (fixedApiKey && client.apiKey !== fixedApiKey) {
+    client.apiKey = fixedApiKey;
+    dirty = true;
+  }
+  if (fixedWebhookSecret && client.webhookSecret !== fixedWebhookSecret) {
+    client.webhookSecret = fixedWebhookSecret;
+    dirty = true;
+  }
+  if (catalogApiUrl && client.catalogApiUrl !== catalogApiUrl) {
+    client.catalogApiUrl = catalogApiUrl;
+    dirty = true;
+  }
+  if (dirty) {
+    await client.save();
+    console.log(`[seed] CRM client updated: ${client.slug}`);
+  }
+  return client;
 }
 
 module.exports = { seedPlatform };
