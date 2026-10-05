@@ -985,7 +985,7 @@ router.get("/admin/clients", verifyToken, async (req, res) => {
     const hideSecret = req.user.role !== "superadmin";
     const clients = await Client.find()
       .sort({ name: 1 })
-      .select(hideSecret ? "-webhookSecret" : "");
+      .select(hideSecret ? "-webhookSecret -webhookToken" : "");
     res.json({ success: true, clients });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -994,7 +994,8 @@ router.get("/admin/clients", verifyToken, async (req, res) => {
 
 router.post("/admin/clients", verifyToken, requireRole("superadmin"), async (req, res) => {
   try {
-    const { name, slug, webhookUrl, contactEmail, catalogApiUrl } = req.body || {};
+    const { name, slug, webhookUrl, contactEmail, catalogApiUrl, webhookAuthType, webhookToken } =
+      req.body || {};
     if (!name || !slug) {
       return res.status(400).json({ success: false, message: "name and slug required" });
     }
@@ -1003,10 +1004,19 @@ router.post("/admin/clients", verifyToken, requireRole("superadmin"), async (req
     if (exists) {
       return res.status(400).json({ success: false, message: "Is slug ka client pehle se hai" });
     }
+    const url = String(webhookUrl || "").trim();
+    const authType =
+      webhookAuthType === "frappe" || webhookAuthType === "hmac"
+        ? webhookAuthType
+        : /crm\.mdrcindia\.net|ingest_phlebo_event/i.test(url)
+          ? "frappe"
+          : "hmac";
     const client = await Client.create({
       name: String(name).trim(),
       slug: normalized,
-      webhookUrl: webhookUrl || "",
+      webhookUrl: url,
+      webhookAuthType: authType,
+      webhookToken: String(webhookToken || "").trim(),
       contactEmail: contactEmail || "",
       catalogApiUrl: catalogApiUrl || "",
       notes: "Created from Admin Clients",
@@ -1028,6 +1038,10 @@ router.put("/admin/clients/:id", verifyToken, requireRole("superadmin"), async (
     const b = req.body || {};
     if (b.name) client.name = String(b.name).trim();
     if (b.webhookUrl != null) client.webhookUrl = String(b.webhookUrl).trim();
+    if (b.webhookAuthType === "frappe" || b.webhookAuthType === "hmac") {
+      client.webhookAuthType = b.webhookAuthType;
+    }
+    if (b.webhookToken != null) client.webhookToken = String(b.webhookToken).trim();
     if (b.contactEmail != null) client.contactEmail = String(b.contactEmail).trim();
     if (b.catalogApiUrl != null) client.catalogApiUrl = String(b.catalogApiUrl).trim();
     if (b.status === "active" || b.status === "inactive") client.status = b.status;
@@ -1546,7 +1560,7 @@ router.put("/admin/orders/:id/reschedule", verifyToken, requireRole("admin"), as
       order.assignedAt = new Date();
       order.assignedBy = "manual";
       order.rejectedReason = "";
-      await saveAndNotify(order);
+      await saveAndNotify(order, { event: "order.rescheduled" });
       sendPushToPhlebo(
         phlebo,
         "Pickup rescheduled to you",
@@ -1564,7 +1578,7 @@ router.put("/admin/orders/:id/reschedule", verifyToken, requireRole("admin"), as
     order.assignedAt = null;
     order.assignedBy = "";
     order.rejectedReason = "";
-    await saveAndNotify(order);
+    await saveAndNotify(order, { event: "order.rescheduled" });
     autoAssignInBackground(order);
 
     res.json({ success: true, message: "Order reschedule ho gaya — naye slot ke liye auto-assign try ho raha hai", order });

@@ -155,6 +155,19 @@ async function seedCrmClient(welloSlug) {
 
   const name = String(process.env.CRM_CLIENT_NAME || "CRM").trim() || "CRM";
   const webhookUrl = String(process.env.CRM_WEBHOOK_URL || "").trim();
+  const webhookAuthType =
+    String(process.env.CRM_WEBHOOK_AUTH_TYPE || "").toLowerCase() === "hmac"
+      ? "hmac"
+      : webhookUrl
+        ? /crm\.mdrcindia\.net|ingest_phlebo_event/i.test(webhookUrl)
+          ? "frappe"
+          : String(process.env.CRM_WEBHOOK_AUTH_TYPE || "hmac").toLowerCase() === "frappe"
+            ? "frappe"
+            : "hmac"
+        : String(process.env.CRM_WEBHOOK_AUTH_TYPE || "").toLowerCase() === "frappe"
+          ? "frappe"
+          : "hmac";
+  const webhookToken = String(process.env.CRM_WEBHOOK_FRAPPE_TOKEN || "").trim();
   const fixedApiKey = String(process.env.CRM_API_KEY || "").trim();
   const fixedWebhookSecret = String(process.env.CRM_WEBHOOK_SECRET || "").trim();
   const catalogApiUrl = String(process.env.CRM_CATALOG_API_URL || "").replace(/\/$/, "");
@@ -165,6 +178,8 @@ async function seedCrmClient(welloSlug) {
       name,
       slug,
       webhookUrl,
+      webhookAuthType,
+      webhookToken,
       catalogApiUrl,
       notes: "CRM partner (seeded from CRM_* env)",
       ...(fixedApiKey ? { apiKey: fixedApiKey } : {}),
@@ -181,6 +196,14 @@ async function seedCrmClient(welloSlug) {
   }
   if (client.webhookUrl !== webhookUrl) {
     client.webhookUrl = webhookUrl;
+    dirty = true;
+  }
+  if (webhookAuthType && client.webhookAuthType !== webhookAuthType) {
+    client.webhookAuthType = webhookAuthType;
+    dirty = true;
+  }
+  if (webhookToken && client.webhookToken !== webhookToken) {
+    client.webhookToken = webhookToken;
     dirty = true;
   }
   if (fixedApiKey && client.apiKey !== fixedApiKey) {

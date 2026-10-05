@@ -398,7 +398,7 @@ async function reschedulePartnerOrder(req, res) {
     order.assignedAt = null;
     order.assignedBy = "";
     order.rejectedReason = "";
-    await saveAndNotify(order);
+    await saveAndNotify(order, { event: "order.rescheduled" });
     autoAssignInBackground(order);
 
     res.json({

@@ -20,6 +20,7 @@ export default function Clients() {
   });
   const [editId, setEditId] = useState("");
   const [editWebhook, setEditWebhook] = useState("");
+  const [editToken, setEditToken] = useState("");
 
   function load() {
     setLoading(true);
@@ -60,7 +61,13 @@ export default function Clients() {
     setError("");
     setSaving(true);
     try {
-      await adminApi.updateClient(id, { webhookUrl: editWebhook });
+      await adminApi.updateClient(id, {
+        webhookUrl: editWebhook,
+        webhookAuthType: /crm\.mdrcindia\.net|ingest_phlebo_event/i.test(editWebhook)
+          ? "frappe"
+          : undefined,
+        webhookToken: editToken,
+      });
       setEditId("");
       load();
     } catch (err) {
@@ -165,6 +172,7 @@ export default function Clients() {
                           onClick={() => {
                             setEditId(c._id);
                             setEditWebhook(c.webhookUrl || "");
+                            setEditToken(c.webhookToken || "");
                           }}
                         >
                           Edit
@@ -172,12 +180,18 @@ export default function Clients() {
                       ) : null}
                     </div>
                     {editId === c._id ? (
-                      <div className="flex gap-2">
+                      <div className="space-y-2">
                         <input
-                          className="flex-1 rounded border border-slate-200 px-2 py-1 font-mono"
+                          className="w-full rounded border border-slate-200 px-2 py-1 font-mono"
                           value={editWebhook}
                           onChange={(e) => setEditWebhook(e.target.value)}
-                          placeholder="https://crm.example.com/webhooks/phlebo"
+                          placeholder="https://crm.mdrcindia.net/api/method/crm.integrations.phlebo.webhooks.ingest_phlebo_event"
+                        />
+                        <input
+                          className="w-full rounded border border-slate-200 px-2 py-1 font-mono"
+                          value={editToken}
+                          onChange={(e) => setEditToken(e.target.value)}
+                          placeholder="Frappe token: api_key:api_secret"
                         />
                         <button
                           type="button"
@@ -216,8 +230,9 @@ export default function Clients() {
             <code className="font-mono">PhleboBackend/docs/Phlebo_CRM_Partner_API_Integration.html</code>
           </p>
           <p>
-            Unka kaam: booking confirm pe <code className="font-mono">POST /partner/orders</code>. Status unke webhook pe
-            aayega. Admin se assign, App pe job — ye already Phlebo mein hai.
+            MDRC CRM: unhe Partner API key do (CRM → Phlebo). Unse Frappe{" "}
+            <code className="font-mono">api_key:api_secret</code> lo aur webhook URL + token yahan save karo
+            (Phlebo → CRM). HMAC nahi.
           </p>
         </div>
       </div>

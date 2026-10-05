@@ -26,6 +26,18 @@ const clientSchema = new mongoose.Schema(
       type: String,
       default: () => crypto.randomBytes(24).toString("hex"),
     },
+    /**
+     * hmac = Wello-style X-Phlebo-Signature
+     * frappe = MDRC CRM Authorization: token api_key:api_secret (no HMAC)
+     */
+    webhookAuthType: {
+      type: String,
+      enum: ["hmac", "frappe"],
+      default: "hmac",
+      trim: true,
+    },
+    /** Frappe token as `api_key:api_secret` (without the word "token") */
+    webhookToken: { type: String, default: "", trim: true },
     status: {
       type: String,
       enum: ["active", "inactive"],
