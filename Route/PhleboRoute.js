@@ -242,6 +242,20 @@ const setAdminCancellation = (order, adminName, reason) => {
   order.rejectedReason = `Permanently cancelled by ${who}: ${why}`;
 };
 
+/** City Admin: apna city, ya CRM blank-city order. */
+function adminOwnsOrderCity(user, order) {
+  if (!user || user.role !== "admin") return true;
+  const oc = String(order?.city || "").trim();
+  if (!oc) return true;
+  return oc === user.city;
+}
+
+function claimBlankOrderCity(user, order) {
+  if (user?.role === "admin" && user.city && !String(order.city || "").trim()) {
+    order.city = user.city;
+  }
+}
+
 const formatJob = (order, { mask = false } = {}) => {
   const o = typeof order.toObject === "function" ? order.toObject() : { ...order };
   return {
@@ -851,7 +865,7 @@ router.post("/admin/orders/:id/tests", verifyToken, requireRole("admin"), async 
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
-    if (req.user.role === "admin" && order.city !== req.user.city) {
+    if (req.user.role === "admin" && !adminOwnsOrderCity(req.user, order)) {
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
     }
 
@@ -935,7 +949,7 @@ router.delete(
     try {
       const order = await Order.findById(req.params.id);
       if (!order) return res.status(404).json({ success: false, message: "Order not found" });
-      if (req.user.role === "admin" && order.city !== req.user.city) {
+      if (req.user.role === "admin" && !adminOwnsOrderCity(req.user, order)) {
         return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
       }
       if (order.status === "Cancelled" || order.phleboStatus === "Handed Off") {
@@ -1395,9 +1409,11 @@ router.put("/admin/orders/:id/assign-phlebo", verifyToken, requireRole("admin"),
     const { phleboId } = req.body;
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
-    if (req.user.role === "admin" && order.city !== req.user.city) {
+    if (req.user.role === "admin" && !adminOwnsOrderCity(req.user, order)) {
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
     }
+
+    claimBlankOrderCity(req.user, order);
 
     // Cancelled / Rejected orders bhi dubara assign ho sakte hain (reschedule case).
     if (order.status === "Cancelled") {
@@ -1469,7 +1485,7 @@ router.put("/admin/orders/:id/assign-lab", verifyToken, requireRole("admin"), as
     const { labId } = req.body;
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
-    if (req.user.role === "admin" && order.city !== req.user.city) {
+    if (req.user.role === "admin" && !adminOwnsOrderCity(req.user, order)) {
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
     }
 
@@ -1515,7 +1531,7 @@ router.put("/admin/orders/:id/reschedule", verifyToken, requireRole("admin"), as
 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
-    if (req.user.role === "admin" && order.city !== req.user.city) {
+    if (req.user.role === "admin" && !adminOwnsOrderCity(req.user, order)) {
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
     }
 
@@ -1594,7 +1610,7 @@ router.put("/admin/orders/:id/report-ready", verifyToken, requireRole("admin"), 
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
-    if (req.user.role === "admin" && order.city !== req.user.city) {
+    if (req.user.role === "admin" && !adminOwnsOrderCity(req.user, order)) {
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
     }
     if (!order.handover?.completed || !order.handover?.handedOverAt) {
@@ -1629,7 +1645,7 @@ router.put(
       const { reason, createRedraw = true, slotDate, slotTime } = req.body || {};
       const order = await Order.findById(req.params.id);
       if (!order) return res.status(404).json({ success: false, message: "Order not found" });
-      if (req.user.role === "admin" && order.city !== req.user.city) {
+      if (req.user.role === "admin" && !adminOwnsOrderCity(req.user, order)) {
         return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
       }
 
@@ -2912,7 +2928,7 @@ router.put("/admin/orders/:id/cancel", verifyToken, requireRole("admin"), async 
 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
-    if (req.user.role === "admin" && order.city !== req.user.city) {
+    if (req.user.role === "admin" && !adminOwnsOrderCity(req.user, order)) {
       return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
     }
 
