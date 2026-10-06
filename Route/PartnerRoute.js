@@ -201,7 +201,7 @@ async function createPartnerOrder(req, res) {
       mobileNumber: b.mobileNumber || "",
       address: String(b.address).trim(),
       state: b.state || "",
-      city: b.city || "",
+      city: String(b.city || b.cityName || process.env.CRM_DEFAULT_CITY || "").trim(),
       area: b.area || "",
       pincode: b.pincode || "",
       lat: hasCoords ? lat : null,

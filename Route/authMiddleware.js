@@ -71,7 +71,8 @@ const attachScope = (req, _res, next) => {
   if (user.role === "superadmin") {
     req.scopeFilter = {};
   } else if (user.role === "admin") {
-    req.scopeFilter = { city: user.city };
+    // CRM often omits city — blank-city orders must still appear for city Ops.
+    req.scopeFilter = { city: { $in: [user.city, ""] } };
   } else if (user.role === "lab") {
     req.scopeFilter = { assignedLab: user._id };
   } else {
