@@ -11,7 +11,7 @@ const OpsUser = require("../Models/OpsUser");
 const Client = require("../Models/Client");
 const InventoryItem = require("../Models/InventoryItem");
 const KitAssignment = require("../Models/KitAssignment");
-const { saveAndNotify } = require("../services/webhook");
+const { saveAndNotify, notifyPartner } = require("../services/webhook");
 const { scheduleLisBooking, pushJobToLis, applyAgeFields, reconcileLisIfStale } = require("../services/lisBooking");
 const onlinePayment = require("../services/onlinePayment");
 const {
@@ -1469,6 +1469,31 @@ router.put("/admin/orders/:id/assign-phlebo", verifyToken, requireRole("admin"),
     ).catch(() => {});
 
     res.json({ success: true, message: "Phlebotomist assigned", order });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/admin/orders/:id/notify-crm", verifyToken, requireRole("admin"), async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+    if (req.user.role === "admin" && !adminOwnsOrderCity(req.user, order)) {
+      return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
+    }
+    const webhook = await notifyPartner(order, { event: req.body?.event || undefined });
+    const fresh = await Order.findById(order._id).select("lastWebhookAt lastWebhookStatus assignedPhleboName phleboStatus");
+    res.json({
+      success: true,
+      message: webhook?.skipped
+        ? `CRM webhook skip: ${webhook.reason || "no webhook URL"}`
+        : webhook?.ok
+          ? "CRM webhook sent"
+          : `CRM webhook HTTP ${webhook?.status || "failed"}`,
+      webhook,
+      lastWebhookAt: fresh?.lastWebhookAt,
+      lastWebhookStatus: fresh?.lastWebhookStatus,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

@@ -144,6 +144,7 @@ export const adminApi = {
       method: "PUT",
       body: { phleboId },
     }),
+  notifyCrm: (orderId) => request(`/admin/orders/${orderId}/notify-crm`, { method: "POST", body: {} }),
   assignLab: (orderId, labId) =>
     request(`/admin/orders/${orderId}/assign-lab`, {
       method: "PUT",

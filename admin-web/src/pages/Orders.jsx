@@ -1020,6 +1020,34 @@ export default function Orders() {
               ) : null}
             </div>
 
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 space-y-2">
+              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">CRM webhook</div>
+              <Field label="Last HTTP" value={detailFor.lastWebhookStatus || "not sent"} />
+              <Field
+                label="Last sent"
+                value={detailFor.lastWebhookAt ? new Date(detailFor.lastWebhookAt).toLocaleString() : "—"}
+              />
+              <Field label="Assigned phlebo" value={detailFor.assignedPhleboName || "—"} />
+              {canManage ? (
+                <button
+                  type="button"
+                  className="text-sm text-brand-600 font-medium"
+                  onClick={async () => {
+                    try {
+                      const r = await adminApi.notifyCrm(detailFor._id);
+                      alert(r.message || "Sent");
+                      const d = await adminApi.getOrder(detailFor._id);
+                      setDetailFor(d.order || d);
+                    } catch (e) {
+                      alert(e.message);
+                    }
+                  }}
+                >
+                  Resend status to CRM
+                </button>
+              ) : null}
+            </div>
+
             <div className="rounded-xl border border-violet-100 bg-violet-50/50 px-3 py-3 space-y-2">
               <div className="text-xs font-semibold text-violet-800 uppercase tracking-wide">
                 LIS booking
