@@ -69,6 +69,8 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 async function autoAssignJob(jobId) {
   const job = await Order.findById(jobId);
   if (!job || job.phleboStatus !== "Unassigned") return null;
+  // CRM / partner orders: Admin hi assign kare — App pe tabhi job jaye.
+  if (job.createdBySource === "partner") return null;
 
   const targetDay = dayKeyOf(job.slotDate);
   const candidates = await Phlebotomist.find({ status: "active", dutyStatus: "on_duty" });
@@ -174,7 +176,7 @@ async function tryAutoAssignPendingJobs() {
  * so it never adds latency to the create-order response; swallows its own errors for
  * the same reason (a failure here should never surface to the caller).
  */
-async function geocodeAndAutoAssign(job) {
+async function geocodeAndAutoAssign(job, opts = {}) {
   try {
     if (!(typeof job.lat === "number" && typeof job.lng === "number")) {
       const geo = await geocodeAddress({
@@ -194,6 +196,7 @@ async function geocodeAndAutoAssign(job) {
         );
       }
     }
+    if (opts.assign === false || job.createdBySource === "partner") return;
     await autoAssignJob(job._id);
   } catch (err) {
     console.warn("[auto-assign] geocode+assign failed:", err.message);

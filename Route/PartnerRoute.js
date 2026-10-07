@@ -11,7 +11,7 @@ const LOCKED_VISIT = ["Sample Collected", "Handed Off"];
 
 function autoAssignInBackground(order) {
   setImmediate(() => {
-    geocodeAndAutoAssign(order).catch(() => {});
+    geocodeAndAutoAssign(order, { assign: false }).catch(() => {});
   });
 }
 
