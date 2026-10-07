@@ -15,6 +15,45 @@ function autoAssignInBackground(order) {
   });
 }
 
+function canonicalCity(raw) {
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return "";
+  if (/gurgaon|gurugram|ggm/.test(s)) return "Gurugram";
+  return String(raw).trim();
+}
+
+function partnerAllowedCities() {
+  const fromEnv = String(process.env.CRM_ALLOWED_CITIES || "Gurugram,Gurgaon")
+    .split(",")
+    .map((x) => canonicalCity(x) || x.trim())
+    .filter(Boolean);
+  const set = new Set(fromEnv.map((c) => c.toLowerCase()));
+  set.add("gurugram");
+  set.add("gurgaon");
+  return set;
+}
+
+/**
+ * CRM se sirf allowed cities (default Gurugram). Blank city → default / address se infer.
+ * Dusri city → reject so Noida/Delhi Phlebo Admin/App mein na aaye.
+ */
+function resolvePartnerCity(b) {
+  let city = canonicalCity(b.city || b.cityName);
+  if (!city) {
+    const blob = `${b.address || ""} ${b.area || ""} ${b.state || ""}`;
+    city = canonicalCity(/gurgaon|gurugram/i.test(blob) ? "Gurugram" : "");
+  }
+  if (!city) city = canonicalCity(process.env.CRM_DEFAULT_CITY || "Gurugram");
+  const allowed = partnerAllowedCities();
+  if (!allowed.has(city.toLowerCase())) {
+    return {
+      ok: false,
+      message: `Phlebo only accepts Gurugram home-collection (got city "${city}"). Send city: Gurugram`,
+    };
+  }
+  return { ok: true, city: "Gurugram" };
+}
+
 function publicBase() {
   return String(process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
 }
@@ -173,6 +212,11 @@ async function createPartnerOrder(req, res) {
       });
     }
 
+    const cityRes = resolvePartnerCity(b);
+    if (!cityRes.ok) {
+      return res.status(400).json({ success: false, message: cityRes.message });
+    }
+
     const items = mapItems(b);
     const { discount, payable } = totalsFrom(items, b);
     const lat = parseCoord(b.lat);
@@ -201,7 +245,7 @@ async function createPartnerOrder(req, res) {
       mobileNumber: b.mobileNumber || "",
       address: String(b.address).trim(),
       state: b.state || "",
-      city: String(b.city || b.cityName || process.env.CRM_DEFAULT_CITY || "").trim(),
+      city: cityRes.city,
       area: b.area || "",
       pincode: b.pincode || "",
       lat: hasCoords ? lat : null,
@@ -282,7 +326,13 @@ async function updatePartnerOrder(req, res) {
     if (b.mobileNumber != null) order.mobileNumber = String(b.mobileNumber);
     if (b.address) order.address = String(b.address).trim();
     if (b.state != null) order.state = String(b.state);
-    if (b.city != null) order.city = String(b.city);
+    if (b.city != null || b.cityName != null || b.address) {
+      const cityRes = resolvePartnerCity({ ...b, address: b.address || order.address });
+      if (!cityRes.ok) {
+        return res.status(400).json({ success: false, message: cityRes.message });
+      }
+      order.city = cityRes.city;
+    }
     if (b.area != null) order.area = String(b.area);
     if (b.pincode != null) order.pincode = String(b.pincode);
     if (b.specialInstructions != null) order.specialInstructions = String(b.specialInstructions);
