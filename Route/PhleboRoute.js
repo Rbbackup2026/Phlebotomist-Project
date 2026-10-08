@@ -4466,6 +4466,8 @@ function reportQuery(req) {
     month: req.query.month,
     quarter: req.query.quarter,
     half: req.query.half,
+    from: req.query.from,
+    to: req.query.to,
     phleboId: String(req.query.phleboId || "").trim(),
   };
 }
@@ -4486,6 +4488,7 @@ router.get(
         period: query.period,
         label: range?.label || "All data",
         ...summary,
+        orders: phleboReport.orderLines(orders, range),
       });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
@@ -4506,33 +4509,63 @@ router.get(
       const range = all ? null : phleboReport.periodBounds(query);
       const orders = await phleboReport.loadCollectedOrders(req.scopeFilter, query);
       const summary = phleboReport.summarize(orders, range);
+      const t = summary.totals;
       const summaryRows = summary.rows.map((r) => ({
         Date: r.date,
         "Phlebo name": r.phleboName,
         "Total sample collection": r.collections,
+        Tubes: r.tubes,
         Revenue: r.revenue,
+        "Paid revenue": r.paidRevenue,
+        "Pending revenue": r.pendingRevenue,
+        "Handed off": r.handedOff,
+        "On time": r.onTime,
       }));
       summaryRows.push({
         Date: "Total",
         "Phlebo name": "",
-        "Total sample collection": summary.totals.collections,
-        Revenue: summary.totals.revenue,
+        "Total sample collection": t.collections,
+        Tubes: t.tubes,
+        Revenue: t.revenue,
+        "Paid revenue": t.paidRevenue,
+        "Pending revenue": t.pendingRevenue,
+        "Handed off": t.handedOff,
+        "On time": t.onTime,
       });
 
+      const lines = phleboReport.orderLines(orders, range).map(phleboReport.excelOrderRow);
+      const orderHeaders = Object.keys(
+        phleboReport.excelOrderRow({
+          date: "",
+          pickupId: "",
+          patientName: "",
+          mobileNumber: "",
+          phleboName: "",
+          source: "",
+          area: "",
+          slot: "",
+          status: "",
+          tests: "",
+          tubes: "",
+          rejectedTubes: "",
+          paymentStatus: "",
+          paymentMethod: "",
+          revenue: "",
+          discount: "",
+          extraRevenue: "",
+          onTime: "",
+          handedOver: "",
+          lab: "",
+          redraw: "",
+        })
+      );
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), "Date wise");
-      if (all) {
-        const lines = phleboReport.orderLines(orders, null).map((r) => ({
-          Date: r.date,
-          "Phlebo name": r.phleboName,
-          "Pickup ID": r.pickupId,
-          Patient: r.patientName,
-          "Total sample collection": r.collections,
-          Revenue: r.revenue,
-          Payment: r.paymentStatus,
-        }));
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lines), "All orders");
-      }
+      XLSX.utils.book_append_sheet(
+        wb,
+        lines.length ? XLSX.utils.json_to_sheet(lines) : XLSX.utils.aoa_to_sheet([orderHeaders]),
+        "Orders"
+      );
       const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
       const filename = all
         ? "phlebo-collections-all.xlsx"
