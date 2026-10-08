@@ -151,6 +151,7 @@ export default function Collections() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [detailFor, setDetailFor] = useState(null);
+  const [detailFull, setDetailFull] = useState(false);
   const [chooserJobs, setChooserJobs] = useState(null);
   const [search, setSearch] = useState("");
   const [view, setView] = useState("board"); // board | list
@@ -796,7 +797,17 @@ export default function Collections() {
         ) : null}
       </Modal>
 
-      <Modal open={!!detailFor} onClose={() => setDetailFor(null)} title="Order details" width="max-w-lg">
+      <Modal
+        open={!!detailFor}
+        onClose={() => {
+          setDetailFor(null);
+          setDetailFull(false);
+        }}
+        title="Order details"
+        width="max-w-lg"
+        fullscreen={detailFull}
+        onToggleFullscreen={() => setDetailFull((on) => !on)}
+      >
         {detailFor ? (
           <div className="space-y-4 text-sm">
             <div className="grid grid-cols-2 gap-3">

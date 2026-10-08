@@ -146,6 +146,7 @@ export default function Orders() {
   const [assignFor, setAssignFor] = useState(null);
   const [labAssignFor, setLabAssignFor] = useState(null);
   const [detailFor, setDetailFor] = useState(null);
+  const [detailFull, setDetailFull] = useState(false);
   const [linkedPatients, setLinkedPatients] = useState({ source: null, walkIns: [], siblings: [] });
   const [linkedLoading, setLinkedLoading] = useState(false);
   const [assignSaving, setAssignSaving] = useState(false);
@@ -986,19 +987,22 @@ export default function Orders() {
         open={!!detailFor}
         onClose={() => {
           setDetailFor(null);
+          setDetailFull(false);
           setPatientForm(null);
           setPatientError("");
         }}
         title="Order details"
         width="max-w-lg"
+        fullscreen={detailFull}
+        onToggleFullscreen={() => setDetailFull((on) => !on)}
       >
         {detailFor ? (
-          <div className="space-y-4 text-sm">
-            <div className="grid grid-cols-2 gap-3">
+          <div className={`space-y-4 text-sm ${detailFull ? "mx-auto w-full max-w-6xl" : ""}`}>
+            <div className={`grid grid-cols-2 gap-3 ${detailFull ? "md:grid-cols-4" : ""}`}>
               <Field label="Pickup ID" value={detailFor.pickupId} />
               {canManage && patientForm ? (
                 <form
-                  className="col-span-2 grid grid-cols-2 gap-3"
+                  className={`col-span-2 grid grid-cols-2 gap-3 ${detailFull ? "md:col-span-4" : ""}`}
                   onSubmit={async (e) => {
                     e.preventDefault();
                     const name = patientForm.patientName.trim();
@@ -1103,7 +1107,7 @@ export default function Orders() {
                 </>
               )}
               {(detailFor.patientDetailEdits || []).length > 0 ? (
-                <div className="col-span-2 rounded-lg bg-amber-50 px-3 py-2 space-y-1">
+                <div className={`col-span-2 rounded-lg bg-amber-50 px-3 py-2 space-y-1 ${detailFull ? "md:col-span-4" : ""}`}>
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">
                     Who edited name / age
                   </div>
