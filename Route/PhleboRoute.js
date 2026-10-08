@@ -458,8 +458,10 @@ const formatJob = (order, { mask = false } = {}) => {
     arrivedDistanceFromAddressM: o.arrivedDistanceFromAddressM ?? null,
     arrivedWithinGeofence: o.arrivedWithinGeofence ?? null,
     collectedAt: o.collectedAt,
+    otpVerifiedVia: o.otpVerifiedVia || "",
     otpBypassReason: o.otpBypassReason || "",
     otpBypassAt: o.otpBypassAt || null,
+    otpBypassByName: o.otpBypassByName || "",
     createdAt: o.createdAt,
     paymentCollectedAt: o.paymentCollectedAt,
     paymentCollectedMethod: o.paymentCollectedMethod,
@@ -680,6 +682,12 @@ router.get("/admin/orders/:id", verifyToken, attachScope, async (req, res) => {
       },
     ]);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+    if (req.user?.role === "lab") {
+      delete order.otpAdminCode;
+    } else {
+      const codeExpires = order.otpAdminCodeExpires ? new Date(order.otpAdminCodeExpires) : null;
+      if (!order.otpAdminCode || !codeExpires || codeExpires <= new Date()) order.otpAdminCode = "";
+    }
     // LIS sync can take several seconds. Do it after the response so one
     // order view does not freeze the rest of the admin.
     setImmediate(() => {
@@ -3312,9 +3320,14 @@ router.post("/phlebo/jobs/:id/otp/verify", verifyPhlebo, async (req, res) => {
 
     order.phleboStatus = "OTP Verified";
     order.otpVerifiedAt = new Date();
+    order.otpVerifiedVia = "patient";
     order.patientOtp = null;
     order.otpBypassReason = "";
     order.otpBypassAt = null;
+    order.otpBypassByName = "";
+    order.otpAdminCode = null;
+    order.otpAdminCodeExpires = null;
+    order.otpAdminCodeAttempts = 0;
     await saveAndNotify(order);
     res.json({ success: true, job: formatJob(order) });
   } catch (error) {
@@ -3322,36 +3335,172 @@ router.post("/phlebo/jobs/:id/otp/verify", verifyPhlebo, async (req, res) => {
   }
 });
 
-const OTP_SKIP_REASONS = [
+const OTP_ADMIN_REASONS = [
   "OTP not received",
   "Patient phone has no network",
   "Wrong number on the booking",
-  "Patient confirmed in person",
 ];
 
-router.post("/phlebo/jobs/:id/otp/skip", verifyPhlebo, async (req, res) => {
+function escapeRegex(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function findCityAdmin(city) {
+  const clean = String(city || "").trim();
+  if (!clean) return null;
+  return OpsUser.findOne({
+    role: "admin",
+    isActive: { $ne: false },
+    city: new RegExp(`^${escapeRegex(clean)}$`, "i"),
+  }).select("name phone city");
+}
+
+router.put("/admin/me/phone", verifyToken, requireRole("admin", "superadmin"), async (req, res) => {
   try {
-    const reason = String(req.body.reason || "").trim();
-    if (!OTP_SKIP_REASONS.includes(reason)) {
-      return res.status(400).json({ success: false, message: "Select why the OTP could not be used" });
+    const phone = toTenDigitMobile(req.body?.phone);
+    if (!/^\d{10}$/.test(phone)) {
+      return res.status(400).json({ success: false, message: "Enter a 10-digit mobile number" });
     }
+    req.user.phone = phone;
+    await req.user.save();
+    res.json({ success: true, phone });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post(
+  "/admin/orders/:id/otp-code",
+  verifyToken,
+  requireRole("admin", "superadmin"),
+  async (req, res) => {
+    try {
+      const reason = String(req.body?.reason || "").trim();
+      if (!OTP_ADMIN_REASONS.includes(reason)) {
+        return res.status(400).json({ success: false, message: "Select why the patient OTP could not be used" });
+      }
+      const adminPhone = toTenDigitMobile(req.user.phone);
+      if (!/^\d{10}$/.test(adminPhone)) {
+        return res.status(400).json({
+          success: false,
+          message: "Save your 10-digit mobile first. The phlebo calls this number.",
+        });
+      }
+      if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+        return res.status(404).json({ success: false, message: "Order not found" });
+      }
+      const order = await Order.findById(req.params.id);
+      if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+      if (!adminOwnsOrderCity(req.user, order)) {
+        return res.status(403).json({ success: false, message: "This order is outside your city" });
+      }
+      if (order.status === "Cancelled") {
+        return res.status(400).json({ success: false, message: "Order is cancelled" });
+      }
+      if (order.phleboStatus !== "Arrived") {
+        return res.status(400).json({
+          success: false,
+          message: "Phlebo must be arrived before a door code can be issued",
+        });
+      }
+      const code = crypto.randomInt(1000, 10000).toString();
+      order.otpAdminCode = code;
+      order.otpAdminCodeExpires = new Date(Date.now() + 10 * 60 * 1000);
+      order.otpAdminCodeReason = reason;
+      order.otpAdminCodeAttempts = 0;
+      order.otpAdminCodeByName = req.user.name || "Admin";
+      order.otpAdminCodeAt = new Date();
+      const note = `Door code issued by ${order.otpAdminCodeByName}: ${reason}`;
+      order.adminNote = order.adminNote ? `${order.adminNote} | ${note}` : note;
+      await order.save();
+      res.json({
+        success: true,
+        code,
+        expiresAt: order.otpAdminCodeExpires,
+        reason,
+        adminPhone,
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+);
+
+router.get("/phlebo/jobs/:id/otp/help", verifyPhlebo, async (req, res) => {
+  try {
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    }).select("city");
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    const admin = await findCityAdmin(order.city || req.phlebo.city);
+    res.json({
+      success: true,
+      adminName: admin?.name || "",
+      adminPhone: toTenDigitMobile(admin?.phone || ""),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/phlebo/jobs/:id/otp/admin-code", verifyPhlebo, async (req, res) => {
+  try {
+    const code = String(req.body?.code || "").trim();
     const order = await Order.findOne({
       _id: req.params.id,
       assignedPhlebo: req.phlebo._id,
     });
     if (!order) return res.status(404).json({ success: false, message: "Job not found" });
-    if (!["Arrived", "OTP Verified"].includes(order.phleboStatus)) {
-      return res.status(400).json({ success: false, message: "Arrive before continuing" });
+    if (order.phleboStatus === "OTP Verified") {
+      return res.json({ success: true, job: formatJob(order) });
     }
+    if (order.phleboStatus !== "Arrived") {
+      return res.status(400).json({ success: false, message: "Arrive before entering the admin code" });
+    }
+    const expires = order.otpAdminCodeExpires ? new Date(order.otpAdminCodeExpires) : null;
+    if (!order.otpAdminCode || !expires || expires <= new Date()) {
+      order.otpAdminCode = null;
+      order.otpAdminCodeExpires = null;
+      await order.save();
+      return res.status(400).json({
+        success: false,
+        message: "No active code. Ask the admin to generate a new one.",
+      });
+    }
+    if (order.otpAdminCode !== code) {
+      order.otpAdminCodeAttempts = (order.otpAdminCodeAttempts || 0) + 1;
+      const locked = order.otpAdminCodeAttempts >= 3;
+      if (locked) {
+        order.otpAdminCode = null;
+        order.otpAdminCodeExpires = null;
+      }
+      await order.save();
+      return res.status(400).json({
+        success: false,
+        message: locked
+          ? "Too many wrong tries. Ask the admin for a new code."
+          : "Wrong code",
+        attempts: order.otpAdminCodeAttempts,
+        locked,
+      });
+    }
+    const adminName = order.otpAdminCodeByName || "Admin";
+    const reason = order.otpAdminCodeReason || "OTP not received";
     order.phleboStatus = "OTP Verified";
     order.otpVerifiedAt = new Date();
+    order.otpVerifiedVia = "admin-code";
     order.patientOtp = null;
     order.otpBypassReason = reason;
     order.otpBypassAt = new Date();
-    const note = `OTP skipped by ${req.phlebo.name || "phlebo"}: ${reason}`;
+    order.otpBypassByName = adminName;
+    order.otpAdminCode = null;
+    order.otpAdminCodeExpires = null;
+    order.otpAdminCodeAttempts = 0;
+    const note = `Door code used by ${req.phlebo.name || "phlebo"} (issued by ${adminName}: ${reason})`;
     order.adminNote = order.adminNote ? `${order.adminNote} | ${note}` : note;
     await saveAndNotify(order);
-    res.json({ success: true, message: "Continued without OTP", job: formatJob(order) });
+    res.json({ success: true, job: formatJob(order) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

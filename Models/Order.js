@@ -172,9 +172,19 @@ const orderSchema = new mongoose.Schema(
     patientOtpExpires: { type: Date, default: null },
     otpVerifiedAt: { type: Date, default: null },
     otpAttempts: { type: Number, default: 0 },
-    /** Set when the phlebo continues because the patient never got the SMS. */
+    /** patient = SMS OTP. admin-code = city admin read a one-time door code. */
+    otpVerifiedVia: { type: String, enum: ["", "patient", "admin-code"], default: "" },
+    /** Live door code. Cleared once used, expired, or locked after 3 wrong tries. */
+    otpAdminCode: { type: String, default: null },
+    otpAdminCodeExpires: { type: Date, default: null },
+    otpAdminCodeReason: { type: String, default: "", trim: true },
+    otpAdminCodeAttempts: { type: Number, default: 0 },
+    otpAdminCodeByName: { type: String, default: "", trim: true },
+    otpAdminCodeAt: { type: Date, default: null },
+    /** Set when the visit was verified with an admin door code (or a legacy skip). */
     otpBypassReason: { type: String, default: "", trim: true },
     otpBypassAt: { type: Date, default: null },
+    otpBypassByName: { type: String, default: "", trim: true },
     consent: {
       signed: { type: Boolean, default: false },
       signatureData: { type: String, default: "" },

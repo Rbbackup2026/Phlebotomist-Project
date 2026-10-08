@@ -152,6 +152,9 @@ export const adminApi = {
   getOrder: (id) => request(`/admin/orders/${id}`),
   updatePatient: (orderId, payload) =>
     request(`/admin/orders/${orderId}/patient`, { method: "PUT", body: payload }),
+  saveMyPhone: (phone) => request("/admin/me/phone", { method: "PUT", body: { phone } }),
+  issueOtpCode: (orderId, reason) =>
+    request(`/admin/orders/${orderId}/otp-code`, { method: "POST", body: { reason } }),
   linkedPatients: (orderId) => request(`/admin/orders/${orderId}/linked-patients`),
   rescheduleOrder: (orderId, payload) =>
     request(`/admin/orders/${orderId}/reschedule`, { method: "PUT", body: payload }),

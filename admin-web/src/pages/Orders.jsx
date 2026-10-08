@@ -8,6 +8,7 @@ import TestPicker from "../components/TestPicker.jsx";
 import { useDateRange } from "../hooks/useDateRange.js";
 import { adminApi, authApi, mediaUrl } from "../api.js";
 import AddressField from "../components/AddressField.jsx";
+import DoorCodePanel from "../components/DoorCodePanel.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { visibleClients, displaySource, sourceOptionsForBooking } from "../utils/clients.js";
 
@@ -1159,7 +1160,12 @@ export default function Orders() {
             <div className="flex flex-wrap gap-2">
               <Badge>{detailFor.status || "Booked"}</Badge>
               <Badge>{detailFor.phleboStatus || "Unassigned"}</Badge>
-              {detailFor.otpBypassReason ? (
+              {detailFor.otpVerifiedVia === "admin-code" ? (
+                <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-3 py-1 text-xs font-semibold">
+                  Admin code{detailFor.otpBypassByName ? `: ${detailFor.otpBypassByName}` : ""}
+                  {detailFor.otpBypassReason ? ` · ${detailFor.otpBypassReason}` : ""}
+                </span>
+              ) : detailFor.otpBypassReason ? (
                 <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-3 py-1 text-xs font-semibold">
                   OTP skipped: {detailFor.otpBypassReason}
                 </span>
@@ -1204,6 +1210,8 @@ export default function Orders() {
                 </span>
               ) : null}
             </div>
+
+            <DoorCodePanel order={detailFor} />
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 space-y-2">
               <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">CRM webhook</div>

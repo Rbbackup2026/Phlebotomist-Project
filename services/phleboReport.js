@@ -114,7 +114,8 @@ async function loadCollectedOrders(scopeFilter, { phleboId } = {}) {
     .select(
       "assignedPhlebo assignedPhleboName collectedAt slotDate slotTime totalAmount amount discountAmount " +
         "samples patientName mobileNumber pickupId paymentStatus paymentMethod paymentCollectedMethod " +
-        "phleboStatus items clientName city area handover.handedOverAt assignedLabName isRedraw redrawReason"
+        "phleboStatus items clientName city area handover.handedOverAt assignedLabName isRedraw redrawReason " +
+        "otpVerifiedVia otpBypassReason otpBypassByName"
     )
     .lean();
 }
@@ -243,6 +244,7 @@ function orderLines(orders, range) {
         handedOver: order.handover?.handedOverAt ? istDate(order.handover.handedOverAt) : "",
         lab: order.assignedLabName || "",
         redraw: order.isRedraw ? order.redrawReason || "Yes" : "",
+        patientVerify: patientVerify(order),
       };
     })
     .filter(Boolean)
@@ -250,6 +252,14 @@ function orderLines(orders, range) {
       if (a.date !== b.date) return a.date < b.date ? -1 : 1;
       return a.phleboName.localeCompare(b.phleboName) || a.pickupId.localeCompare(b.pickupId);
     });
+}
+
+function patientVerify(order) {
+  if (order.otpVerifiedVia === "admin-code") {
+    return order.otpBypassByName ? `Admin code · ${order.otpBypassByName}` : "Admin code";
+  }
+  if (order.otpBypassReason) return `OTP skipped · ${order.otpBypassReason}`;
+  return "Patient OTP";
 }
 
 function excelOrderRow(r) {
@@ -275,6 +285,7 @@ function excelOrderRow(r) {
     "Handed over": r.handedOver,
     Lab: r.lab,
     Redraw: r.redraw,
+    "Patient verify": r.patientVerify,
   };
 }
 

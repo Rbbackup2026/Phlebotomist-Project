@@ -4,6 +4,7 @@ import Topbar from "../components/Topbar.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
 import { adminApi } from "../api.js";
+import DoorCodePanel from "../components/DoorCodePanel.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 
 const SLOT_W = 100; // px — timeline chip width (room for readable text)
@@ -830,7 +831,13 @@ export default function Collections() {
                   Patient asked to reschedule
                 </span>
               ) : null}
+              {detailFor.otpVerifiedVia === "admin-code" ? (
+                <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-2.5 py-0.5 text-xs font-medium">
+                  Admin code{detailFor.otpBypassByName ? `: ${detailFor.otpBypassByName}` : ""}
+                </span>
+              ) : null}
             </div>
+            <DoorCodePanel order={detailFor} />
             {detailFor.tightSchedule ? (
               <div className="rounded-lg bg-amber-50 text-amber-700 text-xs px-3 py-2">
                 ⚠ Tight schedule{detailFor.tightScheduleNote ? `: ${detailFor.tightScheduleNote}` : ""}

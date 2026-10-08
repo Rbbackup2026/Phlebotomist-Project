@@ -18,6 +18,8 @@ const opsUserSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true, trim: true, lowercase: true },
     password: { type: String, required: true },
     name: { type: String, default: "Ops Admin", trim: true },
+    /** City admin mobile — phlebo isi number par call karke door code leta hai. */
+    phone: { type: String, default: "", trim: true },
     role: {
       type: String,
       enum: ["superadmin", "admin", "lab", "ops"],
