@@ -109,6 +109,19 @@ function editRoleLabel(role) {
   return role === "phlebo" ? "Phlebo" : "Admin";
 }
 
+function isExtraTest(item, order) {
+  if (!item?.addedByPhlebo) return false;
+  const items = order?.items || [];
+  if (items.some((i) => !i.addedByPhlebo)) return true;
+  const created = new Date(order?.createdAt || 0).getTime();
+  const added = item.addedAt ? new Date(item.addedAt).getTime() : 0;
+  return added > 0 && created > 0 && added - created > 2 * 60 * 1000;
+}
+
+function extraTestKind(item) {
+  return item?.addedBySource === "admin" ? "admin" : "phlebo";
+}
+
 function formatEditWhen(value) {
   if (!value) return "";
   const d = new Date(value);
@@ -648,6 +661,12 @@ export default function Orders() {
                         {o.patientEditedByName ? (
                           <div className="text-[11px] text-amber-700">
                             Edited by {o.patientEditedByName} ({editRoleLabel(o.patientEditedByRole)})
+                          </div>
+                        ) : null}
+                        {(o.items || []).some((it) => isExtraTest(it, o)) ? (
+                          <div className="mt-1 text-[11px] font-semibold text-amber-800">
+                            {(o.items || []).filter((it) => isExtraTest(it, o)).length} extra test
+                            {(o.items || []).filter((it) => isExtraTest(it, o)).length === 1 ? "" : "s"}
                           </div>
                         ) : null}
                         <div className="text-xs text-slate-400">
@@ -1351,20 +1370,37 @@ export default function Orders() {
             ) : null}
             <div>
               <div className="label mb-1.5">Tests</div>
+              <div className="mb-2 flex flex-wrap gap-2 text-[11px]">
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600">Original</span>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-900">Extra · Admin</span>
+                <span className="rounded-full bg-violet-100 px-2 py-0.5 font-medium text-violet-900">Extra · Phlebo</span>
+              </div>
               {(detailFor.items || []).length > 0 ? (
                 <div className="space-y-1 mb-2">
-                  {(detailFor.items || []).map((it, i) => (
+                  {(detailFor.items || []).map((it, i) => {
+                    const extra = isExtraTest(it, detailFor);
+                    const kind = extraTestKind(it);
+                    const rowClass = !extra
+                      ? "border-slate-100 bg-slate-50"
+                      : kind === "admin"
+                        ? "border-amber-300 bg-amber-50"
+                        : "border-violet-300 bg-violet-50";
+                    const badgeClass = !extra
+                      ? "bg-slate-200 text-slate-600"
+                      : kind === "admin"
+                        ? "bg-amber-200 text-amber-950"
+                        : "bg-violet-200 text-violet-950";
+                    const badge = !extra ? "Original" : kind === "admin" ? "Extra · Admin" : "Extra · Phlebo";
+                    return (
                     <div
-                      key={it.productId || i}
-                      className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs"
+                      key={`${it.productId || i}-${it.addedBySource || "orig"}-${i}`}
+                      className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs ${rowClass}`}
                     >
                       <span className="flex items-center gap-2 min-w-0">
-                        <span className="truncate">{it.name}</span>
-                        {it.addedByPhlebo ? (
-                          <span className="shrink-0 rounded-full bg-violet-50 text-violet-700 px-2 py-0.5 text-[10px] font-medium">
-                            {it.addedBySource === "admin" ? "Added by Ops" : "Added on-site"}
-                          </span>
-                        ) : null}
+                        <span className="truncate font-medium">{it.name}</span>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${badgeClass}`}>
+                          {badge}
+                        </span>
                       </span>
                       <span className="flex items-center gap-2 shrink-0">
                         <span className="text-slate-500">
@@ -1385,7 +1421,8 @@ export default function Orders() {
                         ) : null}
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : null}
               <details className="text-xs">

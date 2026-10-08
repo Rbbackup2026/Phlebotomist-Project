@@ -152,6 +152,41 @@ function recordPatientDetailEdit(order, { byName, byRole, patientName, age }) {
   return true;
 }
 
+/**
+ * Extra test is a new line. Never convert the original CRM/admin test into an extra,
+ * even when the same test is added again.
+ */
+function pushExtraTest(order, catalogItem, qty, source) {
+  order.items = order.items || [];
+  const id = String(catalogItem.productId);
+  const extra = order.items.find(
+    (i) => String(i.productId) === id && i.addedByPhlebo && (i.addedBySource || "phlebo") === source
+  );
+  if (extra) {
+    extra.quantity = (extra.quantity || 1) + qty;
+    extra.price = catalogItem.price;
+    extra.name = catalogItem.name;
+    extra.sku = catalogItem.sku || extra.sku || catalogItem.productId;
+    extra.addedByPhlebo = true;
+    extra.addedBySource = source;
+    extra.addedAt = new Date();
+    return extra;
+  }
+  const row = {
+    productId: catalogItem.productId,
+    name: catalogItem.name,
+    category: catalogItem.category || "",
+    price: catalogItem.price,
+    quantity: qty,
+    sku: catalogItem.sku || catalogItem.productId || "",
+    addedByPhlebo: true,
+    addedBySource: source,
+    addedAt: new Date(),
+  };
+  order.items.push(row);
+  return row;
+}
+
 function publicPatientEdits(edits) {
   return (edits || []).map((e) => ({
     byName: e.byName || "",
@@ -968,32 +1003,7 @@ router.post("/admin/orders/:id/tests", verifyToken, requireRole("admin"), async 
     const prevTotal = order.totalAmount || 0;
     const wasPaid = order.paymentStatus === "Paid";
 
-    order.items = order.items || [];
-    const existing = order.items.find(
-      (i) => String(i.productId) === String(catalogItem.productId)
-    );
-
-    if (existing) {
-      existing.quantity = (existing.quantity || 1) + qty;
-      existing.price = catalogItem.price;
-      existing.name = catalogItem.name;
-      existing.sku = catalogItem.sku || existing.sku || catalogItem.productId;
-      existing.addedByPhlebo = true;
-      existing.addedBySource = "admin";
-      existing.addedAt = new Date();
-    } else {
-      order.items.push({
-        productId: catalogItem.productId,
-        name: catalogItem.name,
-        category: catalogItem.category,
-        price: catalogItem.price,
-        quantity: qty,
-        sku: catalogItem.sku || catalogItem.productId || "",
-        addedByPhlebo: true,
-        addedBySource: "admin",
-        addedAt: new Date(),
-      });
-    }
+    pushExtraTest(order, catalogItem, qty, "admin");
 
     recalcJobTotals(order);
     if (wasPaid && order.totalAmount > prevTotal) {
@@ -2694,30 +2704,7 @@ router.post("/phlebo/jobs/:id/tests", verifyPhlebo, async (req, res) => {
     const prevTotal = order.totalAmount || 0;
     const wasPaid = order.paymentStatus === "Paid";
 
-    order.items = order.items || [];
-    const existing = order.items.find(
-      (i) => String(i.productId) === String(catalogItem.productId)
-    );
-
-    if (existing) {
-      existing.quantity = (existing.quantity || 1) + qty;
-      existing.price = catalogItem.price;
-      existing.name = catalogItem.name;
-      existing.sku = catalogItem.sku || existing.sku || catalogItem.productId;
-      existing.addedByPhlebo = true;
-      existing.addedAt = new Date();
-    } else {
-      order.items.push({
-        productId: catalogItem.productId,
-        name: catalogItem.name,
-        category: catalogItem.category,
-        price: catalogItem.price,
-        quantity: qty,
-        sku: catalogItem.sku || catalogItem.productId || "",
-        addedByPhlebo: true,
-        addedAt: new Date(),
-      });
-    }
+    pushExtraTest(order, catalogItem, qty, "phlebo");
 
     recalcJobTotals(order);
 
