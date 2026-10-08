@@ -458,6 +458,8 @@ const formatJob = (order, { mask = false } = {}) => {
     arrivedDistanceFromAddressM: o.arrivedDistanceFromAddressM ?? null,
     arrivedWithinGeofence: o.arrivedWithinGeofence ?? null,
     collectedAt: o.collectedAt,
+    otpBypassReason: o.otpBypassReason || "",
+    otpBypassAt: o.otpBypassAt || null,
     createdAt: o.createdAt,
     paymentCollectedAt: o.paymentCollectedAt,
     paymentCollectedMethod: o.paymentCollectedMethod,
@@ -3311,8 +3313,45 @@ router.post("/phlebo/jobs/:id/otp/verify", verifyPhlebo, async (req, res) => {
     order.phleboStatus = "OTP Verified";
     order.otpVerifiedAt = new Date();
     order.patientOtp = null;
+    order.otpBypassReason = "";
+    order.otpBypassAt = null;
     await saveAndNotify(order);
     res.json({ success: true, job: formatJob(order) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+const OTP_SKIP_REASONS = [
+  "OTP not received",
+  "Patient phone has no network",
+  "Wrong number on the booking",
+  "Patient confirmed in person",
+];
+
+router.post("/phlebo/jobs/:id/otp/skip", verifyPhlebo, async (req, res) => {
+  try {
+    const reason = String(req.body.reason || "").trim();
+    if (!OTP_SKIP_REASONS.includes(reason)) {
+      return res.status(400).json({ success: false, message: "Select why the OTP could not be used" });
+    }
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (!["Arrived", "OTP Verified"].includes(order.phleboStatus)) {
+      return res.status(400).json({ success: false, message: "Arrive before continuing" });
+    }
+    order.phleboStatus = "OTP Verified";
+    order.otpVerifiedAt = new Date();
+    order.patientOtp = null;
+    order.otpBypassReason = reason;
+    order.otpBypassAt = new Date();
+    const note = `OTP skipped by ${req.phlebo.name || "phlebo"}: ${reason}`;
+    order.adminNote = order.adminNote ? `${order.adminNote} | ${note}` : note;
+    await saveAndNotify(order);
+    res.json({ success: true, message: "Continued without OTP", job: formatJob(order) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

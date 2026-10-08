@@ -172,6 +172,9 @@ const orderSchema = new mongoose.Schema(
     patientOtpExpires: { type: Date, default: null },
     otpVerifiedAt: { type: Date, default: null },
     otpAttempts: { type: Number, default: 0 },
+    /** Set when the phlebo continues because the patient never got the SMS. */
+    otpBypassReason: { type: String, default: "", trim: true },
+    otpBypassAt: { type: Date, default: null },
     consent: {
       signed: { type: Boolean, default: false },
       signatureData: { type: String, default: "" },

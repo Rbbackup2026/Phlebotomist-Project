@@ -1159,6 +1159,11 @@ export default function Orders() {
             <div className="flex flex-wrap gap-2">
               <Badge>{detailFor.status || "Booked"}</Badge>
               <Badge>{detailFor.phleboStatus || "Unassigned"}</Badge>
+              {detailFor.otpBypassReason ? (
+                <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-3 py-1 text-xs font-semibold">
+                  OTP skipped: {detailFor.otpBypassReason}
+                </span>
+              ) : null}
               {detailFor.walkInSourceJobId && (
                 <span className="inline-flex items-center rounded-full bg-violet-100 text-violet-700 px-3 py-1 text-xs font-semibold">
                   Walk-in (added by phlebo on-site)
