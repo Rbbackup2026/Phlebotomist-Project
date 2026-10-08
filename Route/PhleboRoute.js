@@ -13,6 +13,7 @@ const InventoryItem = require("../Models/InventoryItem");
 const KitAssignment = require("../Models/KitAssignment");
 const { saveAndNotify, notifyPartner } = require("../services/webhook");
 const { scheduleLisBooking, pushJobToLis, applyAgeFields, reconcileLisIfStale } = require("../services/lisBooking");
+const phleboReport = require("../services/phleboReport");
 const onlinePayment = require("../services/onlinePayment");
 const {
   seedLisPanelsIfEmpty,
@@ -4457,6 +4458,96 @@ router.delete("/admin/phlebos/:id", verifyToken, requireRole("admin"), async (re
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
+function reportQuery(req) {
+  return {
+    period: String(req.query.period || "monthly"),
+    year: req.query.year,
+    month: req.query.month,
+    quarter: req.query.quarter,
+    half: req.query.half,
+    phleboId: String(req.query.phleboId || "").trim(),
+  };
+}
+
+router.get(
+  "/admin/reports/phlebo-collections",
+  verifyToken,
+  requireRole("superadmin", "admin", "ops"),
+  attachScope,
+  async (req, res) => {
+    try {
+      const query = reportQuery(req);
+      const range = phleboReport.periodBounds(query);
+      const orders = await phleboReport.loadCollectedOrders(req.scopeFilter, query);
+      const summary = phleboReport.summarize(orders, range);
+      res.json({
+        success: true,
+        period: query.period,
+        label: range?.label || "All data",
+        ...summary,
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+);
+
+router.get(
+  "/admin/reports/phlebo-collections.xlsx",
+  verifyToken,
+  requireRole("superadmin", "admin", "ops"),
+  attachScope,
+  async (req, res) => {
+    try {
+      const XLSX = require("xlsx");
+      const query = reportQuery(req);
+      const all = String(req.query.scope || "") === "all";
+      const range = all ? null : phleboReport.periodBounds(query);
+      const orders = await phleboReport.loadCollectedOrders(req.scopeFilter, query);
+      const summary = phleboReport.summarize(orders, range);
+      const summaryRows = summary.rows.map((r) => ({
+        Date: r.date,
+        "Phlebo name": r.phleboName,
+        "Total sample collection": r.collections,
+        Revenue: r.revenue,
+      }));
+      summaryRows.push({
+        Date: "Total",
+        "Phlebo name": "",
+        "Total sample collection": summary.totals.collections,
+        Revenue: summary.totals.revenue,
+      });
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), "Date wise");
+      if (all) {
+        const lines = phleboReport.orderLines(orders, null).map((r) => ({
+          Date: r.date,
+          "Phlebo name": r.phleboName,
+          "Pickup ID": r.pickupId,
+          Patient: r.patientName,
+          "Total sample collection": r.collections,
+          Revenue: r.revenue,
+          Payment: r.paymentStatus,
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lines), "All orders");
+      }
+      const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+      const filename = all
+        ? "phlebo-collections-all.xlsx"
+        : `phlebo-collections-${(range?.label || "report").replace(/[^\w.-]+/g, "-")}.xlsx`;
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(buf);
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+);
 
 router.get("/admin/analytics", verifyToken, requireRole("superadmin", "admin"), attachScope, async (req, res) => {
   try {

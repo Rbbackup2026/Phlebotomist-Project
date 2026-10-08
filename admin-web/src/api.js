@@ -69,6 +69,41 @@ async function request(path, options = {}) {
   return data;
 }
 
+async function downloadFile(path, fallbackName) {
+  const token = getToken();
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}${path}`, { headers });
+  if (res.status === 401) {
+    const wasSuperadmin = getUser()?.role === "superadmin";
+    clearSession();
+    if (!location.pathname.endsWith("/login")) {
+      location.href = wasSuperadmin ? "/admin/super-login" : "/admin/login";
+    }
+  }
+  if (!res.ok) {
+    let message = `Download failed (${res.status})`;
+    try {
+      const data = await res.json();
+      message = data?.message || message;
+    } catch {
+      /* binary or empty */
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "");
+  const name = match?.[1] || fallbackName;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function qs(params = {}) {
   return new URLSearchParams(
     Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== ""))
@@ -158,6 +193,17 @@ export const adminApi = {
   },
   analyticsByCity: () => request("/admin/analytics/by-city"),
   labTat: () => request("/admin/analytics/lab-tat"),
+  phleboReport: (params = {}) => {
+    const q = qs(params);
+    return request(`/admin/reports/phlebo-collections${q ? `?${q}` : ""}`);
+  },
+  downloadPhleboReport: (params = {}) => {
+    const q = qs(params);
+    return downloadFile(
+      `/admin/reports/phlebo-collections.xlsx${q ? `?${q}` : ""}`,
+      "phlebo-collections.xlsx"
+    );
+  },
   markReportReady: (orderId) =>
     request(`/admin/orders/${orderId}/report-ready`, { method: "PUT" }),
   settleCash: (phleboId, jobIds) =>

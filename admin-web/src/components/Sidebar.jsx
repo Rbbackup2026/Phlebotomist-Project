@@ -13,6 +13,7 @@ const baseItems = [
   { to: "/phlebos", label: "Phlebotomists", icon: "🧑‍⚕️" },
   { to: "/attendance", label: "Attendance", icon: "🕘" },
   { to: "/collections", label: "Collections", icon: "📅" },
+  { to: "/reports", label: "Reports", icon: "📊" },
   { to: "/lab-tat", label: "Lab TAT", icon: "⏱️" },
   { to: "/clients", label: "CRM / Clients", icon: "🌐" },
 ];
@@ -37,9 +38,10 @@ export default function Sidebar() {
   // Orders (assigned list) ke alawa kuch nahi chahiye. Added Tests/Payments/
   // Kits/Phlebos/Clients sab city-Admin ka operational territory hai.
   const clientsItem = baseItems.find((i) => i.to === "/clients");
+  const reportsItem = baseItems.find((i) => i.to === "/reports");
   const items =
     role === "superadmin"
-      ? [baseItems[0], clientsItem, teamItem, ticketsItem].filter(Boolean)
+      ? [baseItems[0], clientsItem, reportsItem, teamItem, ticketsItem].filter(Boolean)
       : role === "admin"
       ? [...baseItems, teamItem, ticketsItem]
       : role === "lab"
