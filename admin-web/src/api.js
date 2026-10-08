@@ -115,6 +115,8 @@ export const adminApi = {
       method: "DELETE",
     }),
   getOrder: (id) => request(`/admin/orders/${id}`),
+  updatePatient: (orderId, payload) =>
+    request(`/admin/orders/${orderId}/patient`, { method: "PUT", body: payload }),
   linkedPatients: (orderId) => request(`/admin/orders/${orderId}/linked-patients`),
   rescheduleOrder: (orderId, payload) =>
     request(`/admin/orders/${orderId}/reschedule`, { method: "PUT", body: payload }),

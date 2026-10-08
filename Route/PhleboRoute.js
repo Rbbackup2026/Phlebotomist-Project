@@ -128,18 +128,87 @@ function ageFieldsFromBody(b) {
   return { age: t.age || "", dob: t.dob || "" };
 }
 
-function recalcJobTotals(job) {
-  const gross = (job.items || []).reduce(
+/** Record who changed patient name/age. No-op when both values are unchanged. */
+function recordPatientDetailEdit(order, { byName, byRole, patientName, age }) {
+  const nextName = String(patientName || "").trim();
+  const nextAge = String(age || "").trim();
+  const same =
+    String(order.patientName || "").trim() === nextName &&
+    String(order.age || "").trim() === nextAge;
+  if (same) return false;
+  order.patientName = nextName;
+  order.age = nextAge;
+  const edit = {
+    byName: String(byName || "").trim() || (byRole === "phlebo" ? "Phlebo" : "Admin"),
+    byRole,
+    at: new Date(),
+    patientName: nextName,
+    age: nextAge,
+  };
+  order.patientDetailEdits = [...(order.patientDetailEdits || []), edit].slice(-20);
+  order.patientEditedByName = edit.byName;
+  order.patientEditedByRole = byRole;
+  order.patientEditedAt = edit.at;
+  return true;
+}
+
+function publicPatientEdits(edits) {
+  return (edits || []).map((e) => ({
+    byName: e.byName || "",
+    byRole: e.byRole === "phlebo" ? "phlebo" : "admin",
+    at: e.at || null,
+    patientName: e.patientName || "",
+    age: e.age || "",
+  }));
+}
+
+function itemsGross(items) {
+  return (items || []).reduce(
     (sum, i) => sum + (Number(i.price) || 0) * (Number(i.quantity) || 1),
     0
   );
-  let discount = Math.max(0, Number(job.discountAmount) || 0);
-  if (discount > gross) discount = gross;
+}
+
+/** Percent discounts stay a percent of the current test total when tests change. */
+function discountRupeesForJob(job, gross) {
+  const g = Math.max(0, Number(gross) || 0);
+  if (job.discountType === "percent") {
+    const pct = Math.min(100, Math.max(0, Number(job.discountPercent) || 0));
+    return Math.min(g, Math.round((g * pct) / 100));
+  }
+  return clampDiscount(g, job.discountAmount);
+}
+
+function recalcJobTotals(job) {
+  const gross = itemsGross(job.items);
+  const discount = discountRupeesForJob(job, gross);
   job.discountAmount = discount;
   const payable = Math.max(0, gross - discount);
   job.amount = payable;
   job.totalAmount = payable;
   return payable;
+}
+
+/**
+ * Phlebo discount: fixed rupees (discountAmount) or a percent of the test total
+ * (discountType=percent + discountPercent). Stored rupee value is always discountAmount.
+ */
+function resolveDiscount(gross, body = {}) {
+  const g = Math.max(0, Number(gross) || 0);
+  const typeRaw = String(body.discountType || "amount").toLowerCase();
+  const isPercent = typeRaw === "percent" || typeRaw === "percentage";
+  if (isPercent) {
+    let pct = Number(body.discountPercent);
+    if (!Number.isFinite(pct)) pct = 0;
+    if (pct < 0) pct = 0;
+    if (pct > 100) return { error: "Discount percent cannot exceed 100" };
+    const discount = Math.min(g, Math.round((g * pct) / 100));
+    return { gross: g, discount, discountType: "percent", discountPercent: pct, payable: Math.max(0, g - discount) };
+  }
+  const raw = Number(body.discountAmount) || 0;
+  if (raw < 0) return { error: "Discount cannot be negative" };
+  if (raw > g) return { error: "Discount cannot exceed test total" };
+  return { gross: g, discount: raw, discountType: "amount", discountPercent: 0, payable: Math.max(0, g - raw) };
 }
 
 function clampDiscount(gross, raw) {
@@ -272,6 +341,10 @@ const formatJob = (order, { mask = false } = {}) => {
     gender: o.gender,
     age: o.age || "",
     dob: o.dob || "",
+    patientEditedByName: mask ? "" : o.patientEditedByName || "",
+    patientEditedByRole: mask ? "" : o.patientEditedByRole || "",
+    patientEditedAt: mask ? null : o.patientEditedAt || null,
+    patientDetailEdits: mask ? [] : publicPatientEdits(o.patientDetailEdits),
     address: o.address,
     city: o.city,
     area: o.area,
@@ -283,6 +356,8 @@ const formatJob = (order, { mask = false } = {}) => {
     items: o.items || [],
     amount: o.totalAmount,
     discountAmount: Number(o.discountAmount) || 0,
+    discountType: o.discountType === "percent" ? "percent" : "amount",
+    discountPercent: Number(o.discountPercent) || 0,
     grossAmount: (o.items || []).reduce(
       (s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 1),
       0
@@ -414,6 +489,7 @@ router.get("/admin/orders", verifyToken, attachScope, async (req, res) => {
       "pickupId patientName mobileNumber slotDate slotTime status phleboStatus paymentStatus paymentMethod " +
       "assignedPhlebo assignedPhleboName assignedLab assignedLabName clientName clientSlug clientId " +
       "isRedraw walkInSourceJobId createdBySource createdByPhleboName rescheduleRequested " +
+      "patientEditedByName patientEditedByRole patientEditedAt " +
       "cancelledBy cancelledByName cancelReason city totalAmount amount items createdAt externalOrderId";
     const [total, orders] = await Promise.all([
       Order.countDocuments(filter),
@@ -1547,6 +1623,41 @@ router.put("/admin/orders/:id/assign-lab", verifyToken, requireRole("admin"), as
  * turant auto-assign try hota hai (jaisa naye order pe hota hai).
  * Already-collected/handed-off orders reschedule nahi ho sakte — wo complete ho chuke hain.
  */
+router.put("/admin/orders/:id/patient", verifyToken, requireRole("admin"), async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+    if (!adminOwnsOrderCity(req.user, order)) {
+      return res.status(403).json({ success: false, message: "Ye order aapke city ka nahi hai" });
+    }
+
+    const name = String(req.body?.patientName || "").trim();
+    if (!name) {
+      return res.status(400).json({ success: false, message: "Patient name is required" });
+    }
+    const ageDigits = String(req.body?.age ?? "").replace(/\D/g, "").slice(0, 3);
+    const ageNum = parseInt(ageDigits, 10);
+    if (!ageDigits || !Number.isFinite(ageNum) || ageNum < 0 || ageNum > 130) {
+      return res.status(400).json({ success: false, message: "Patient age is required (0–130)" });
+    }
+
+    const changed = recordPatientDetailEdit(order, {
+      byName: req.user.name || req.user.email || "Admin",
+      byRole: "admin",
+      patientName: name,
+      age: String(ageNum),
+    });
+    if (changed) await saveAndNotify(order);
+    res.json({
+      success: true,
+      message: changed ? "Patient details updated" : "No change",
+      order,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.put("/admin/orders/:id/reschedule", verifyToken, requireRole("admin"), async (req, res) => {
   try {
     const { slotDate, slotTime, phleboId } = req.body || {};
@@ -2387,7 +2498,11 @@ router.post("/phlebo/jobs/create-direct", verifyPhlebo, async (req, res) => {
       return res.status(400).json({ success: false, message: "At least one test is required" });
     }
 
-    const { discount, payable } = payableFromItems(items, b.discountAmount);
+    const priced = resolveDiscount(itemsGross(items), b);
+    if (priced.error) {
+      return res.status(400).json({ success: false, message: priced.error });
+    }
+    const { discount, payable, discountType, discountPercent } = priced;
     const city = String(b.city || req.phlebo.city || "").trim();
     const geo = await coordsForAddress(address, b.lat, b.lng);
     const hasCoords = geo.lat != null && geo.lng != null;
@@ -2419,6 +2534,8 @@ router.post("/phlebo/jobs/create-direct", verifyPhlebo, async (req, res) => {
       slotDate,
       slotTime,
       discountAmount: discount,
+      discountType,
+      discountPercent,
       amount: payable,
       totalAmount: payable,
       status: "Booked",
@@ -2745,7 +2862,11 @@ router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
       addedAt: new Date(),
     }));
 
-    const { discount, payable } = payableFromItems(cleanItems, req.body?.discountAmount);
+    const priced = resolveDiscount(itemsGross(cleanItems), req.body || {});
+    if (priced.error) {
+      return res.status(400).json({ success: false, message: priced.error });
+    }
+    const { discount, payable, discountType, discountPercent } = priced;
     const [pickupId, trackingToken] = await Promise.all([
       generatePickupId(),
       generateTrackingToken(),
@@ -2777,6 +2898,8 @@ router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
       specialInstructions: specialInstructions || "",
       items: cleanItems,
       discountAmount: discount,
+      discountType,
+      discountPercent,
       amount: payable,
       totalAmount: payable,
       paymentMethod: paymentMethod || sourceJob.paymentMethod || "COD",
@@ -2818,6 +2941,59 @@ router.post("/phlebo/jobs/:id/add-patient", verifyPhlebo, async (req, res) => {
     });
   }
 });
+
+/** Name and age — after the phlebo has confirmed (accepted) the appointment, until handover. */
+const EDIT_PATIENT_STATUSES = [
+  "Accepted",
+  "En Route",
+  "Arrived",
+  "OTP Verified",
+  "Consent Done",
+  "Sample Collected",
+];
+
+async function updatePatientDetails(req, res) {
+  try {
+    const order = await Order.findOne({
+      _id: req.params.id,
+      assignedPhlebo: req.phlebo._id,
+    });
+    if (!order) return res.status(404).json({ success: false, message: "Job not found" });
+    if (!EDIT_PATIENT_STATUSES.includes(order.phleboStatus)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Patient name and age can be edited after the appointment is confirmed, until handover",
+      });
+    }
+    const name = String(req.body?.patientName || "").trim();
+    if (!name) {
+      return res.status(400).json({ success: false, message: "Patient name is required" });
+    }
+    const ageDigits = String(req.body?.age ?? "").replace(/\D/g, "").slice(0, 3);
+    const ageNum = parseInt(ageDigits, 10);
+    if (!ageDigits || !Number.isFinite(ageNum) || ageNum < 0 || ageNum > 130) {
+      return res.status(400).json({ success: false, message: "Patient age is required (0–130)" });
+    }
+    const changed = recordPatientDetailEdit(order, {
+      byName: req.phlebo.name || "Phlebo",
+      byRole: "phlebo",
+      patientName: name,
+      age: String(ageNum),
+    });
+    if (changed) await saveAndNotify(order);
+    res.json({
+      success: true,
+      message: changed ? "Patient details updated" : "No change",
+      job: formatJob(order),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+router.put("/phlebo/jobs/:id/patient", verifyPhlebo, updatePatientDetails);
+router.post("/phlebo/jobs/:id/patient", verifyPhlebo, updatePatientDetails);
 
 router.post("/phlebo/jobs/:id/accept", verifyPhlebo, async (req, res) => {
   try {

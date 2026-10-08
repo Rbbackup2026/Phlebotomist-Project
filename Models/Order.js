@@ -44,6 +44,20 @@ const orderSchema = new mongoose.Schema(
     /** LIS BookingAPINew requires age or DOB */
     age: { type: String, default: "", trim: true },
     dob: { type: String, default: "", trim: true },
+    /** Last person who changed patient name or age. */
+    patientEditedByName: { type: String, default: "", trim: true },
+    patientEditedByRole: { type: String, enum: ["", "admin", "phlebo"], default: "" },
+    patientEditedAt: { type: Date, default: null },
+    /** Who changed name/age, oldest first. Capped at 20. */
+    patientDetailEdits: [
+      {
+        byName: { type: String, default: "", trim: true },
+        byRole: { type: String, enum: ["admin", "phlebo"], required: true },
+        at: { type: Date, default: Date.now },
+        patientName: { type: String, default: "", trim: true },
+        age: { type: String, default: "", trim: true },
+      },
+    ],
     mobileNumber: { type: String, trim: true, default: "" },
     address: { type: String, trim: true, required: true },
     state: { type: String, trim: true, default: "" },
@@ -62,6 +76,10 @@ const orderSchema = new mongoose.Schema(
     totalAmount: { type: Number },
     /** ₹ off list price (gross − discount = totalAmount). Sent to LIS as DiscountAmt. */
     discountAmount: { type: Number, default: 0 },
+    /** How the phlebo entered the discount: fixed rupees, or a percent of the test total. */
+    discountType: { type: String, enum: ["amount", "percent"], default: "amount" },
+    /** Used when discountType is percent. discountAmount stays the rupee value. */
+    discountPercent: { type: Number, default: 0 },
     status: { type: String, default: "Booked", trim: true },
     paymentMethod: { type: String, default: "COD", trim: true },
     paymentStatus: { type: String, default: "Unpaid", trim: true },

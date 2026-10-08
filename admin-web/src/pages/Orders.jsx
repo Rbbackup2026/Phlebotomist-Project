@@ -105,6 +105,22 @@ function orderStatusLabel(order) {
   return order?.status || "Booked";
 }
 
+function editRoleLabel(role) {
+  return role === "phlebo" ? "Phlebo" : "Admin";
+}
+
+function formatEditWhen(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function Orders() {
   const { user } = useAuth();
   // Sirf city Admin operational edits (create/assign) kar sakta hai. Superadmin
@@ -144,6 +160,10 @@ export default function Orders() {
   const [cancelReason, setCancelReason] = useState("");
   const [cancelSaving, setCancelSaving] = useState(false);
   const [cancelError, setCancelError] = useState("");
+
+  const [patientForm, setPatientForm] = useState(null);
+  const [patientSaving, setPatientSaving] = useState(false);
+  const [patientError, setPatientError] = useState("");
 
   const [showNewOrder, setShowNewOrder] = useState(false);
   const [newOrder, setNewOrder] = useState(emptyNewOrder);
@@ -421,6 +441,8 @@ export default function Orders() {
   };
 
   useEffect(() => {
+    setPatientForm(null);
+    setPatientError("");
     if (!detailFor?._id) return;
     let cancelled = false;
     adminApi
@@ -622,6 +644,11 @@ export default function Orders() {
                     <tr key={o._id} className="hover:bg-slate-50">
                       <td className="px-4 py-3">
                         <div className="font-medium text-slate-800">{o.patientName}</div>
+                        {o.patientEditedByName ? (
+                          <div className="text-[11px] text-amber-700">
+                            Edited by {o.patientEditedByName} ({editRoleLabel(o.patientEditedByRole)})
+                          </div>
+                        ) : null}
                         <div className="text-xs text-slate-400">
                           {o.pickupId || `#${String(o._id).slice(-6).toUpperCase()}`} · {o.mobileNumber}
                         </div>
@@ -955,13 +982,139 @@ export default function Orders() {
         ) : null}
       </Modal>
 
-      <Modal open={!!detailFor} onClose={() => setDetailFor(null)} title="Order details" width="max-w-lg">
+      <Modal
+        open={!!detailFor}
+        onClose={() => {
+          setDetailFor(null);
+          setPatientForm(null);
+          setPatientError("");
+        }}
+        title="Order details"
+        width="max-w-lg"
+      >
         {detailFor ? (
           <div className="space-y-4 text-sm">
             <div className="grid grid-cols-2 gap-3">
               <Field label="Pickup ID" value={detailFor.pickupId} />
-              <Field label="Patient" value={detailFor.patientName} />
-              <Field label="Age" value={detailFor.age || "—"} />
+              {canManage && patientForm ? (
+                <form
+                  className="col-span-2 grid grid-cols-2 gap-3"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const name = patientForm.patientName.trim();
+                    const ageDigits = String(patientForm.age || "").replace(/\D/g, "").slice(0, 3);
+                    const ageNum = parseInt(ageDigits, 10);
+                    if (!name) {
+                      setPatientError("Patient name is required");
+                      return;
+                    }
+                    if (!ageDigits || !Number.isFinite(ageNum) || ageNum > 130) {
+                      setPatientError("Patient age is required (0–130)");
+                      return;
+                    }
+                    setPatientSaving(true);
+                    setPatientError("");
+                    try {
+                      const res = await adminApi.updatePatient(detailFor._id, {
+                        patientName: name,
+                        age: ageDigits,
+                      });
+                      if (res.order) setDetailFor(res.order);
+                      setPatientForm(null);
+                      load();
+                    } catch (err) {
+                      setPatientError(err.message || "Could not update patient");
+                    } finally {
+                      setPatientSaving(false);
+                    }
+                  }}
+                >
+                  <div>
+                    <label className="label">Patient name</label>
+                    <input
+                      required
+                      className="input"
+                      value={patientForm.patientName}
+                      onChange={(e) => setPatientForm({ ...patientForm, patientName: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Age (years)</label>
+                    <input
+                      required
+                      className="input"
+                      inputMode="numeric"
+                      maxLength={3}
+                      value={patientForm.age}
+                      onChange={(e) =>
+                        setPatientForm({
+                          ...patientForm,
+                          age: e.target.value.replace(/\D/g, "").slice(0, 3),
+                        })
+                      }
+                    />
+                  </div>
+                  {patientError ? (
+                    <div className="col-span-2 rounded-lg bg-rose-50 text-rose-700 text-sm px-3 py-2">
+                      {patientError}
+                    </div>
+                  ) : null}
+                  <div className="col-span-2 flex gap-2">
+                    <button type="submit" disabled={patientSaving} className="btn-primary">
+                      {patientSaving ? "Saving…" : "Save name & age"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={patientSaving}
+                      onClick={() => {
+                        setPatientForm(null);
+                        setPatientError("");
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <div>
+                    <div className="text-xs text-slate-400">Patient</div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-slate-700 font-medium">{detailFor.patientName || "—"}</div>
+                      {canManage ? (
+                        <button
+                          type="button"
+                          className="text-sm text-brand-600 font-medium"
+                          onClick={() => {
+                            setPatientError("");
+                            setPatientForm({
+                              patientName: detailFor.patientName || "",
+                              age: String(detailFor.age || "").replace(/\D/g, "").slice(0, 3),
+                            });
+                          }}
+                        >
+                          Edit
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <Field label="Age" value={detailFor.age || "—"} />
+                </>
+              )}
+              {(detailFor.patientDetailEdits || []).length > 0 ? (
+                <div className="col-span-2 rounded-lg bg-amber-50 px-3 py-2 space-y-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">
+                    Who edited name / age
+                  </div>
+                  {[...detailFor.patientDetailEdits].reverse().map((edit, i) => (
+                    <div key={`${edit.at || i}-${edit.byName}`} className="text-xs text-amber-900">
+                      {edit.byName} ({editRoleLabel(edit.byRole)}) set {edit.patientName}, {edit.age} yrs
+                      {edit.at ? ` · ${formatEditWhen(edit.at)}` : ""}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               <Field label="Mobile" value={detailFor.mobileNumber} />
               <Field label="Source" value={displaySource(detailFor)} />
               <Field label="External order ID" value={detailFor.externalOrderId} />
@@ -970,7 +1123,11 @@ export default function Orders() {
                 label="Amount"
                 value={
                   Number(detailFor.discountAmount) > 0
-                    ? `₹${detailFor.totalAmount ?? detailFor.amount ?? 0} (discount −₹${detailFor.discountAmount})`
+                    ? `₹${detailFor.totalAmount ?? detailFor.amount ?? 0} (discount −₹${detailFor.discountAmount}${
+                        detailFor.discountType === "percent" && Number(detailFor.discountPercent) > 0
+                          ? `, ${detailFor.discountPercent}%`
+                          : ""
+                      })`
                     : `₹${detailFor.totalAmount ?? detailFor.amount ?? 0}`
                 }
               />
