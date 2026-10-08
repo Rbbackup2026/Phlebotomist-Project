@@ -26,6 +26,8 @@ export default function DoorCodePanel({ order }) {
   const [editingPhone, setEditingPhone] = useState(!user?.phone);
   const [code, setCode] = useState("");
   const [expiresAt, setExpiresAt] = useState(null);
+  const [phleboName, setPhleboName] = useState(order?.assignedPhleboName || "");
+  const [phleboPhone, setPhleboPhone] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -33,6 +35,27 @@ export default function DoorCodePanel({ order }) {
     setPhone(String(user?.phone || "").replace(/\D/g, "").slice(0, 10));
     setEditingPhone(!user?.phone);
   }, [user?.phone]);
+
+  useEffect(() => {
+    const id = order?.assignedPhlebo;
+    if (!id) {
+      setPhleboName(order?.assignedPhleboName || "");
+      setPhleboPhone("");
+      return undefined;
+    }
+    let cancelled = false;
+    adminApi
+      .phlebo(id)
+      .then((res) => {
+        if (cancelled) return;
+        setPhleboName(res.phlebo?.name || order?.assignedPhleboName || "");
+        setPhleboPhone(String(res.phlebo?.phone || "").replace(/\D/g, "").slice(-10));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [order?.assignedPhlebo, order?.assignedPhleboName]);
 
   useEffect(() => {
     if (order?.phleboStatus !== "Arrived") return undefined;
@@ -85,6 +108,8 @@ export default function DoorCodePanel({ order }) {
       const res = await adminApi.issueOtpCode(order._id, reason);
       setCode(res.code);
       setExpiresAt(res.expiresAt);
+      if (res.phleboName) setPhleboName(res.phleboName);
+      if (res.phleboPhone) setPhleboPhone(String(res.phleboPhone).replace(/\D/g, "").slice(-10));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -100,12 +125,22 @@ export default function DoorCodePanel({ order }) {
     <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 space-y-3">
       <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Door code</div>
       <p className="text-sm text-amber-950">
-        Patient OTP nahi aaya ho to code banao aur phlebo ko phone par padh kar do. Yeh code sirf is order ke liye hai, 10 minute ke liye.
+        If the patient did not get the OTP, generate a code and read it to the phlebo. This code works only for this order and expires in 10 minutes.
       </p>
+      <div className="text-sm text-amber-950">
+        Phlebo: <span className="font-semibold">{phleboName || order.assignedPhleboName || "—"}</span>
+        {phleboPhone ? (
+          <a className="ml-2 font-semibold text-brand-700" href={`tel:${phleboPhone}`}>
+            {phleboPhone}
+          </a>
+        ) : (
+          <span className="ml-2 text-amber-800">Phone not on file</span>
+        )}
+      </div>
       {editingPhone ? (
         <div className="flex flex-wrap items-end gap-2">
           <label className="text-xs text-amber-900 flex-1 min-w-[180px]">
-            Your mobile (phlebo will call this)
+            Your mobile (the phlebo will call this)
             <input
               className="input mt-1"
               inputMode="numeric"
@@ -121,7 +156,7 @@ export default function DoorCodePanel({ order }) {
         </div>
       ) : (
         <div className="text-sm text-amber-950">
-          Phlebo will call <span className="font-semibold">{user.phone}</span>
+          The phlebo will call <span className="font-semibold">{user.phone}</span>
           <button type="button" className="ml-2 text-brand-600 font-medium" onClick={() => setEditingPhone(true)}>
             Change
           </button>
@@ -143,8 +178,19 @@ export default function DoorCodePanel({ order }) {
       {error ? <div className="text-sm text-rose-700">{error}</div> : null}
       {code ? (
         <div className="rounded-lg bg-white border border-amber-200 px-3 py-3 text-center">
-          <div className="text-xs uppercase tracking-wide text-slate-400">Read this to the phlebo</div>
+          <div className="text-xs uppercase tracking-wide text-slate-400">Read this code to the phlebo</div>
           <div className="text-4xl font-bold tracking-[0.35em] text-slate-900 mt-1">{code}</div>
+          <div className="text-sm text-slate-700 mt-2">
+            {phleboName || "Phlebo"}
+            {phleboPhone ? (
+              <>
+                {" · "}
+                <a className="font-semibold text-brand-700" href={`tel:${phleboPhone}`}>
+                  {phleboPhone}
+                </a>
+              </>
+            ) : null}
+          </div>
           <div className="text-xs text-slate-500 mt-1">Valid until {expiresLabel}</div>
         </div>
       ) : null}

@@ -3413,12 +3413,23 @@ router.post(
       const note = `Door code issued by ${order.otpAdminCodeByName}: ${reason}`;
       order.adminNote = order.adminNote ? `${order.adminNote} | ${note}` : note;
       await order.save();
+      let phleboName = order.assignedPhleboName || "";
+      let phleboPhone = "";
+      if (order.assignedPhlebo) {
+        const phlebo = await Phlebotomist.findById(order.assignedPhlebo).select("name phone");
+        if (phlebo) {
+          phleboName = phlebo.name || phleboName;
+          phleboPhone = toTenDigitMobile(phlebo.phone);
+        }
+      }
       res.json({
         success: true,
         code,
         expiresAt: order.otpAdminCodeExpires,
         reason,
         adminPhone,
+        phleboName,
+        phleboPhone,
       });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
